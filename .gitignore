@@ -1,0 +1,14 @@
+# Ignore collected image data
+*.png
+*.jpg
+*.jpeg
+
+# Keep all json
+!*.json
+
+# Completely ignore large workspace
+meng_ws/
+
+# Never commit secrets
+github_password.txt
+
