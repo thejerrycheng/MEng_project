@@ -1,26 +1,95 @@
-<mujoco model="simple_scene">
-    <option gravity="0 0 -9.81" timestep="0.002"/>
+<mujoco model="6dof_arm_no_self_collision">
+    <compiler angle="degree" meshdir="meshes/" autolimits="true"/>
+
+    <option gravity="0 0 -9.81" timestep="0.001">
+        <flag contact="enable" energy="enable"/>
+    </option>
 
     <asset>
+        <mesh name="base_mesh" file="base_link.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="shoulder_mesh" file="shoulder.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="arm_link1_mesh" file="arm_link1.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="elbow_mesh" file="elbow.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="arm_link2_mesh" file="arm_link2.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="wrist1_mesh" file="wrist1.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="wrist2_mesh" file="wrist2.stl" scale="0.01 0.01 0.01"/>
+        
+        <material name="aluminum" rgba="0.8 0.8 0.82 1"/>
+        <material name="carbon" rgba="0.15 0.15 0.15 1"/>
+        <material name="camera_red" rgba="1 0 0 1"/>
+        
         <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
         <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".2 .3 .4"/>
-        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true"/>
     </asset>
 
     <worldbody>
-        <light diffuse=".5 .5 .5" pos="0 0 3" dir="0 0 -1"/>
-        <geom name="floor" type="plane" size="5 5 .05" material="grid" condim="3"/>
+        <light diffuse=".8 .8 .8" pos="0 0 300" dir="0 0 -1"/>
+        
+        <camera name="fixed_view" pos="10 10 10" quat="0.48 0.21 0.44 0.72"/>
+        
+        <geom name="floor" type="plane" size="500 500 .5" material="grid" condim="3" friction="1 0.005 0.0001" contype="2" conaffinity="1"/>
 
-        <!-- <camera name="main_cam" pos="3 -3 2" lookat="0 0 0.5"/> -->
+        <body name="base" pos="0 0 0">
+            <geom type="mesh" mesh="base_mesh" material="aluminum" contype="1" conaffinity="2"/>
+            
+            <body name="shoulder" pos="0 0 2.5"> 
+                <inertial pos="0 0 -0.2" mass="0.55" diaginertia="0.01 0.01 0.01"/>
+                <joint name="joint1" type="hinge" axis="0 0 1" range="-180 180" damping="0.2"/>
+                <geom type="mesh" mesh="shoulder_mesh" material="carbon" contype="1" conaffinity="2"/>
 
-        <body name="box1" pos="0.5 0 1">
-            <joint type="free"/>
-            <geom type="box" size="0.1 0.1 0.1" rgba="1 0.5 0 1" mass="1"/>
-        </body>
+                <body name="arm_link1" pos="0.22 0 0.59" euler="0 90 180">
+                    <inertial pos="-0.1 0 -0" mass="0.55" diaginertia="0.01 0.01 0.01"/>
+                    <joint name="joint2" type="hinge" axis="0 0 1" range="-180 180" damping="0.5"/>
+                    <geom type="mesh" mesh="arm_link1_mesh" material="aluminum" contype="1" conaffinity="2"/>
 
-        <body name="ball1" pos="0 0 2">
-            <joint type="free"/>
-            <geom type="sphere" size="0.1" rgba="0 0.7 1 1" mass="0.5"/>
+                    <body name="elbow" pos="3.0 0 -0.3">
+                        <inertial pos="-0 0 0" mass="0.55" diaginertia="0.005 0.005 0.005"/>
+                        <joint name="joint3" type="hinge" axis="0 0 1" range="-150 150" damping="0.5"/>
+                        <geom type="mesh" mesh="elbow_mesh" material="carbon" contype="1" conaffinity="2"/>
+
+                        <body name="arm_link2" pos="0.2 0 0">
+                            <inertial pos="-0 0 -0" mass="1.1" diaginertia="0.005 0.005 0.005"/>
+                            <joint name="joint4" type="hinge" axis="1 0 0" range="-180 180" damping="0.2"/>
+                            <geom type="mesh" mesh="arm_link2_mesh" material="aluminum" contype="1" conaffinity="2"/>
+
+                            <body name="wrist1" pos="3.16 -0.063 0" euler="90 0 0">
+                                <inertial pos="-0 0 0" mass="0.05" diaginertia="0.002 0.002 0.002"/>
+                                <joint name="joint5" type="hinge" axis="0 1 0" range="-100 100" damping="0.1"/>
+                                <geom type="mesh" mesh="wrist1_mesh" material="carbon" contype="1" conaffinity="2"/>
+
+                                <body name="wrist2" pos="0.43 0 0">
+                                    <inertial pos="0 0 0" mass="0.01" diaginertia="0.001 0.001 0.001"/>
+                                    <joint name="joint6" type="hinge" axis="1 0 0" range="-360 360" damping="0.1"/>
+                                    <geom type="mesh" mesh="wrist2_mesh" material="aluminum" contype="1" conaffinity="2"/>
+                                    
+                                    <geom name="camera_visual" type="box" size="0.05 0.2 0.1" pos="0 0 0" material="camera_red" contype="0" conaffinity="0"/>
+                                    
+                                    <camera name="hand_cam" pos="2 0 0" euler="0 0 30" fovy="65"/>
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
         </body>
     </worldbody>
+
+    <actuator>
+        <motor name="m1" joint="joint1" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+        <motor name="m2" joint="joint2" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+        <motor name="m3" joint="joint3" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+        <motor name="m4" joint="joint4" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+        <motor name="m5" joint="joint5" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+        <motor name="m6" joint="joint6" gear="1" ctrlrange="-50 50" ctrllimited="true"/>
+    </actuator>
+
+    <contact>
+        <exclude body1="base" body2="shoulder"/>
+        <exclude body1="shoulder" body2="arm_link1"/>
+        <exclude body1="arm_link1" body2="elbow"/>
+        <exclude body1="elbow" body2="arm_link2"/>
+        <exclude body1="arm_link2" body2="wrist1"/>
+        <exclude body1="wrist1" body2="wrist2"/>
+    </contact>
 </mujoco>

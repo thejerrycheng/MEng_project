@@ -17,10 +17,10 @@ class IRISKinematics:
         # DH Parameters [theta_offset, d, a, alpha]
         self.params = [
             {'th_off': 0,   'd': 2.5,  'a': 0.22, 'alpha': 90},  # J1
-            {'th_off': 90,  'd': 0.0,  'a': 3.0,  'alpha': 0},   # J2
-            {'th_off': 0,   'd': 0.0,  'a': 0.2,  'alpha': 90},  # J3
+            {'th_off': 0,  'd': 0.0,  'a': 3.0,  'alpha': 0},   # J2
+            {'th_off': 0,   'd': 0.0,  'a': 0.2,  'alpha': 0},  # J3
             {'th_off': 0,   'd': 3.16, 'a': 0.0,  'alpha': -90}, # J4
-            {'th_off': 0,   'd': 0.0,  'a': 0.0,  'alpha': 90},  # J5
+            {'th_off': 0,   'd': 0.0,  'a': 0.0,  'alpha': 0},  # J5
             {'th_off': 0,   'd': 0.43, 'a': 0.0,  'alpha': 0}    # J6
         ]
 
