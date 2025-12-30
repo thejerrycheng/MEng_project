@@ -1,0 +1,41 @@
+<mujoco model="single_joint_stable">
+    <compiler angle="degree" meshdir="meshes/" autolimits="true"/>
+
+    <option gravity="0 0 -9.81" timestep="0.001">
+        <flag contact="disable"/>
+    </option>
+
+    <asset>
+        <mesh name="base_mesh" file="base_link.stl" scale="0.01 0.01 0.01"/>
+        <mesh name="shoulder_mesh" file="shoulder.stl" scale="0.01 0.01 0.01"/>
+        <material name="aluminum" rgba="0.8 0.8 0.82 1"/>
+
+        <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+        <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".2 .3 .4"/>
+        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+    </asset>
+
+    <worldbody>
+        <light pos="0 0 10" diffuse=".8 .8 .8"/>
+        
+        <geom name="floor" type="plane" size="5 5 .01" material="grid" contype="0" conaffinity="0"/>
+
+        <body name="base" pos="0 0 0">
+            <geom type="mesh" mesh="base_mesh" material="aluminum" contype="0" conaffinity="0"/>
+            
+            <body name="shoulder" pos="0 0 2.5"> 
+                <inertial pos="0 0 0.0" mass="0.5" diaginertia="0.001 0.001 0.001"/>
+                <joint name="joint1" type="hinge" axis="0 0 1" damping="0.5" armature="0.01"/>
+                <geom type="mesh" mesh="shoulder_mesh" contype="0" conaffinity="0"/>
+            </body>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <motor name="m1" joint="joint1" gear="1" ctrlrange="-100 100" ctrllimited="true"/>
+    </actuator>
+
+    <contact>
+        <exclude body1="base" body2="shoulder"/>
+    </contact>
+</mujoco>
