@@ -6,25 +6,33 @@
     </option>
 
     <asset>
-        <mesh name="base_mesh" file="base_link.stl" scale="0.001 0.001 0.001"/>
-        <mesh name="shoulder_mesh" file="shoulder.stl" scale="0.001 0.001 0.001"/>
+        <mesh name="base_mesh" file="base_link_factor_0.001.stl"/>
+        <mesh name="shoulder_mesh" file="shoulder_factor_0.001.stl"/>
+        <mesh name="arm_link1_mesh" file="arm_link1_factor_0.001.stl"/>
+        <mesh name="elbow_mesh" file="elbow_factor_0.001.stl"/>
+        <mesh name="arm_link2_mesh" file="arm_link2_factor_0.001.stl"/>
+        <mesh name="wrist1_mesh" file="wrist1_factor_0.001.stl"/>
+        <mesh name="wrist2_mesh" file="wrist2_factor_0.001.stl"/>
+        <mesh name="ee_mount_mesh" file="ee_mount_factor_0.001.stl"/>
+        <!-- <mesh name="base_mesh" file="base_link.stl" scale="0.001 0.001 0.001"/> -->
+        <!-- <mesh name="shoulder_mesh" file="shoulder.stl" scale="0.001 0.001 0.001"/>
         <mesh name="arm_link1_mesh" file="arm_link1.stl" scale="0.001 0.001 0.001"/>
         <mesh name="elbow_mesh" file="elbow.stl" scale="0.001 0.001 0.001"/>
         <mesh name="arm_link2_mesh" file="arm_link2.stl" scale="0.001 0.001 0.001"/>
         <mesh name="wrist1_mesh" file="wrist1.stl" scale="0.001 0.001 0.001"/>
         <mesh name="wrist2_mesh" file="wrist2.stl" scale="0.001 0.001 0.001"/>
-        <mesh name="ee_mount_mesh" file="ee_mount.stl" scale="0.001 0.001 0.001"/>
+        <mesh name="ee_mount_mesh" file="ee_mount.stl" scale="0.001 0.001 0.001"/> -->
         
         <material name="aluminum" rgba="0.8 0.8 0.82 1"/>
         <material name="carbon" rgba="0.15 0.15 0.15 1"/>
         
         <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
         <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".2 .3 .4"/>
-        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true"/>
+        <material name="grid" texture="grid" texrepeat="10 10" texuniform="true"/>
     </asset>
 
     <worldbody>
-        <light diffuse=".8 .8 .8" pos="0 0 300" dir="0 0 -1"/>
+        <light diffuse=".8 .8 .8" pos="0 0 500" dir="0 0 -1"/>
         
         <geom name="floor" type="plane" size="500 500 .5" material="grid" condim="3" friction="1 0.005 0.0001" contype="2" conaffinity="1"/>
 
