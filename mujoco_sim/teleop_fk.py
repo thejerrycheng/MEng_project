@@ -9,7 +9,7 @@ from collections import deque
 
 # --- Configuration ---
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
-XML_PATH = os.path.join(CURR_DIR, "assets", "iris_with_axis.xml")
+XML_PATH = os.path.join(CURR_DIR, "assets", "iris.xml")
 HOME_POSITION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 class IRISKinematics:
