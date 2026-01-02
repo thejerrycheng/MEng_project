@@ -12,11 +12,11 @@ class IRISFinalDH:
         # Parameters: [a, alpha, d, theta_offset]
         self.dh_table = [
             {'a': 0.0,      'alpha': 0.0,   'd': 0.2487,  'th_off': 0.0},   # J1: ground -> base 
-            {'a': 0.0,      'alpha': 90.0,  'd': 0.0665,   'th_off': 180.0}, # J2: base -> shoulder
-            {'a': 0.29853,  'alpha': 0.0, 'd': 0.0,     'th_off': 0.0},  # shoulder -> arm_link1
-            {'a': 0.0,      'alpha': 90.0,  'd': 0.0,     'th_off': 0.0},   # J4: arm_link1 -> elbow
+            {'a': 0.0218,      'alpha': 90.0,  'd': 0.059,   'th_off': 180.0}, # J2: base -> shoulder
+            {'a': 0.299774,  'alpha': 0.0, 'd': 0.0,     'th_off': 0.0},  # shoulder -> arm_link1
+            {'a': 0.02,      'alpha': 90.0,  'd': 0.0,     'th_off': 0.0},   # J4: arm_link1 -> elbow
             {'a': 0.32512 ,   'alpha': -90.0, 'd': 0.0,     'th_off': 0.0},   # J5: elbow -> wrist1
-            {'a': 0.0428,      'alpha': 90.0,  'd': 0,  'th_off': 0.0}    # J6: wrist1 -> wrist2
+            {'a': 0.0428,      'alpha': 90.0,  'd': 0,  'th_off': 0.0},    # J6: wrist1 -> wrist2
         ]
 
     def get_dh_matrix(self, q_rad, dh):

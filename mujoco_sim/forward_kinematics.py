@@ -19,7 +19,7 @@ class IRISKinematics:
             # Joint 4: arm_link2
             {'pos': [0.02, 0, 0],          'euler': [0, 90, 0],   'axis': [0, 0, 1]}, 
             # Joint 5: wrist1
-            {'pos': [0, -0.00624, 0.315],  'euler': [0, -90, 0],  'axis': [0, 0, 1]}, 
+            {'pos': [0, 0, 0.315],  'euler': [0, -90, 0],  'axis': [0, 0, 1]}, 
             # Joint 6: wrist2
             {'pos': [0.042824, 0, 0],      'euler': [0, 90, 0],   'axis': [0, 0, 1]}  
         ]

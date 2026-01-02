@@ -116,7 +116,7 @@
                                 <joint name="joint5" type="hinge" axis="0 0 1" range="-100 100" damping="2" armature="0.01" frictionloss="0.2"/>
                                 <geom type="mesh" mesh="wrist1_mesh" material="carbon" contype="1" conaffinity="2"/>
 
-                                <body name="wrist2" pos="0.042824 0 0" euler="0 90 0">
+                                <body name="wrist2" pos="0.042824 0 0" euler="0 90 180">
                                     <geom class="visual_axis" pos="0.05 0 0" quat="0.707 0 0.707 0" material="axis_red"/>
                                     <geom class="axis_tip" pos="0.1 0 0" quat="0.707 0 0.707 0" material="axis_red"/>
                                     <geom class="visual_axis" pos="0 0.05 0" quat="0.707 0.707 0 0" material="axis_green"/>
