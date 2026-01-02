@@ -4,186 +4,188 @@ import numpy as np
 import time
 import sys
 import os
+import xml.etree.ElementTree as ET
 
 # --- Configuration ---
-# Ensure this points to the XML with the <site name="target_ball"...> added
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
-XML_PATH = os.path.join(CURR_DIR, "assets", "iris_with_axis.xml")
+XML_PATH = os.path.join(CURR_DIR, "assets", "iris.xml")
 START_Q = np.array([0, -45, -90, 0, 0, 0], dtype=np.float64) 
 
-# Trajectory Settings
-LINEAR_VELOCITY = 0.15   # m/s constant speed between points
-ARRIVAL_TOLERANCE = 0.02 # 2cm tolerance to consider reached
+LINEAR_VELOCITY = 0.08   # m/s (Slightly slower for better precision)
+ANGULAR_VELOCITY = 0.3   # rad/s (Reduced to ensure IK can keep up)
+ARRIVAL_TOLERANCE = 0.008 # 8mm tolerance
 
-# --- Waypoints: [X, Y, Z, Roll, Pitch, Yaw] ---
+# Waypoints: [X, Y, Z, Roll, Pitch, Yaw]
 WAYPOINTS = [
-    [0.3, -0.2, 0.4, 0, 0, 0],
-    [0.4,  0.2, 0.5, 0, 0, 0],
-    [0.5,  0.0, 0.3, 0, 1.57, 0],
-    [0.3,  0.3, 0.6, 1.57, 0, 1.57],
-    [0.2,  0.0, 0.4, 0, 0, 0],
+    [0.4, -0.2, 0.4, 0.0, 0.0, 0.0],
+    [0.5,  0.1, 0.5, 1.57, 0.0, 0.0],
+    [0.4,  0.3, 0.3, 0.0, 1.57, 0.0],
+    [0.3,  0.0, 0.6, 0.0, 0.0, 1.57],
 ]
 
-class TrajectoryFollower:
+# --- XML Helper Functions ---
+def get_basic_worldbody(original_xml_path):
+    tree = ET.parse(original_xml_path)
+    root = tree.getroot()
+    worldbody = root.find('worldbody')
+    if worldbody is None:
+        worldbody = ET.SubElement(root, 'worldbody')
+    return tree, root, worldbody
+
+def save_and_load_temp(tree, original_xml_path, suffix="precision"):
+    original_dir = os.path.dirname(original_xml_path)
+    temp_path = os.path.join(original_dir, f'scene_{suffix}.xml')
+    tree.write(temp_path, encoding='unicode')
+    model = mujoco.MjModel.from_xml_path(temp_path)
+    if os.path.exists(temp_path):
+        os.unlink(temp_path)
+    return model
+
+def create_model_with_target_pose(original_xml_path, pos, euler, size=0.1):
+    tree, root, worldbody = get_basic_worldbody(original_xml_path)
+    frame_body = ET.SubElement(worldbody, 'body', {
+        'name': 'target_frame', 
+        'pos': f"{pos[0]} {pos[1]} {pos[2]}",
+        'euler': f"{euler[0]} {euler[1]} {euler[2]}"
+    })
+    ET.SubElement(frame_body, 'geom', {'type': 'sphere', 'size': '0.02', 'rgba': '0 1 0 0.6', 'contype': '0', 'conaffinity': '0'})
+    ET.SubElement(frame_body, 'geom', {'type': 'cylinder', 'fromto': f"0 0 0 {size} 0 0", 'size': '0.005', 'rgba': '1 0 0 0.8', 'contype': '0', 'conaffinity': '0'})
+    ET.SubElement(frame_body, 'geom', {'type': 'cylinder', 'fromto': f"0 0 0 0 {size} 0", 'size': '0.005', 'rgba': '0 1 0 0.8', 'contype': '0', 'conaffinity': '0'})
+    ET.SubElement(frame_body, 'geom', {'type': 'cylinder', 'fromto': f"0 0 0 0 0 {size}", 'size': '0.005', 'rgba': '0 0 1 0.8', 'contype': '0', 'conaffinity': '0'})
+    return save_and_load_temp(tree, original_xml_path)
+
+class PrecisionPoseFollower:
     def __init__(self, model, data):
         self.model = model
         self.data = data
         self.ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_mount")
+        self.target_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "target_frame")
         
-        # Look for the visual site in the XML
-        self.target_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "target_ball")
-        if self.target_site_id == -1:
-            print("WARNING: <site name='target_ball'> not found in XML. Visualization disabled.")
-
-        # Initialize Robot Pose
         self.data.qpos[:6] = np.deg2rad(START_Q)
         mujoco.mj_forward(model, data)
         
-        # Initialize IK targets to current EE position
-        self.current_ik_target = self.data.body(self.ee_id).xpos.copy()
+        # Initialize internal targets to exact EE state
+        self.current_target_pos = self.data.body(self.ee_id).xpos.copy()
+        self.current_target_quat = np.zeros(4)
+        mujoco.mju_mat2Quat(self.current_target_quat, self.data.body(self.ee_id).xmat)
         
         self.waypoint_idx = 0
-        self.damping = 1e-3
+        self.damping = 1e-5 # Lower damping for higher precision
 
-        # --- VISUALIZATION INIT ---
-        # Set the green ball to the FIRST waypoint immediately
-        if self.target_site_id != -1 and len(WAYPOINTS) > 0:
-            self.model.site_pos[self.target_site_id] = WAYPOINTS[0][:3]
-
-    def solve_ik_step(self, target_p, target_e):
-        """Standard DLS IK Solve for one step"""
-        # Convert Euler target to Matrix
-        target_quat = np.zeros(4)
-        mujoco.mju_euler2Quat(target_quat, target_e, 'xyz')
-        target_mat = np.zeros(9)
-        mujoco.mju_quat2Mat(target_mat, target_quat)
-        target_mat = target_mat.reshape(3, 3)
-
-        # Get Current State
+    def solve_ik(self, target_p, target_q):
+        # Current State
         curr_pos = self.data.body(self.ee_id).xpos
         curr_mat = self.data.body(self.ee_id).xmat.reshape(3, 3)
         
-        # Calculate Errors
+        # Pos Error
         pos_err = target_p - curr_pos
-        rot_err_mat = target_mat @ curr_mat.T
+        
+        # Ori Error (High Precision Orientation)
+        target_mat = np.zeros(9)
+        mujoco.mju_quat2Mat(target_mat, target_q)
+        rot_err_mat = target_mat.reshape(3, 3) @ curr_mat.T
         rot_err_quat = np.zeros(4)
         mujoco.mju_mat2Quat(rot_err_quat, rot_err_mat.flatten())
+        # The axis-angle representation of the rotation difference
         rot_err_vec = rot_err_quat[1:] * np.sign(rot_err_quat[0])
 
-        # Jacobian & DLS
+        # Jacobian
         jacp, jacr = np.zeros((3, self.model.nv)), np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.ee_id)
         J = np.vstack([jacp, jacr])[:, :6]
         
+        # Solve with full integration gain for precise tracking
         error = np.concatenate([pos_err, rot_err_vec])
         dq = J.T @ np.linalg.solve(J @ J.T + self.damping * np.eye(6), error)
         
-        # Integration with speed limit safety
-        dq = np.clip(dq, -2.0, 2.0) 
-        self.data.qpos[:6] += dq * 0.2
-        self.data.qpos[:6] = np.clip(self.data.qpos[:6], 
-                                     self.model.jnt_range[:6, 0], 
-                                     self.model.jnt_range[:6, 1])
+        # Apply full step (1.0) since we are tracking a moving target smoothly
+        self.data.qpos[:6] += dq
+        self.data.qpos[:6] = np.clip(self.data.qpos[:6], self.model.jnt_range[:6, 0], self.model.jnt_range[:6, 1])
 
     def update(self, dt):
-        """
-        Returns True if all waypoints are completed.
-        Handles interpolation and updating visual marker.
-        """
         if self.waypoint_idx >= len(WAYPOINTS):
-            return True # Sequence Finished
+            return True
 
-        # Get current destination coordinates
-        dest_coords = WAYPOINTS[self.waypoint_idx]
-        dest_pos = np.array(dest_coords[:3])
-        dest_euler = np.array(dest_coords[3:])
+        wp = WAYPOINTS[self.waypoint_idx]
+        dest_pos = np.array(wp[:3])
+        dest_quat = np.zeros(4)
+        mujoco.mju_euler2Quat(dest_quat, wp[3:], 'xyz')
 
-        # --- 1. Workspace Check ---
-        # Simple check: if target is too far from origin, skip it.
-        if np.linalg.norm(dest_pos) > 0.85: 
-            print(f"--> Waypoint {self.waypoint_idx} out of reach. Skipping.")
-            self.next_waypoint()
-            return False
-
-        # --- 2. Position Interpolation (Constant Speed) ---
-        # Vector from current interpolated IK target to ultimate destination
-        pos_diff = dest_pos - self.current_ik_target
-        dist_to_go = np.linalg.norm(pos_diff)
+        # 1. Linear Position Step
+        pos_diff = dest_pos - self.current_target_pos
+        dist = np.linalg.norm(pos_diff)
+        if dist > ARRIVAL_TOLERANCE:
+            self.current_target_pos += (pos_diff / dist) * LINEAR_VELOCITY * dt
         
-        if dist_to_go > ARRIVAL_TOLERANCE:
-            # Move the IK target closer by exactly (Velocity * dt)
-            move_direction = pos_diff / dist_to_go
-            move_step = move_direction * LINEAR_VELOCITY * dt
-            
-            # Ensure we don't overshoot if close
-            if np.linalg.norm(move_step) > dist_to_go:
-                 self.current_ik_target = dest_pos
-            else:
-                 self.current_ik_target += move_step
-        else:
-            # --- Reached Destination ---
-            print(f"--> Reached Waypoint {self.waypoint_idx}")
-            self.next_waypoint()
+        # 2. Angular Velocity Step (mju_quatIntegrate)
+        q_inv = np.zeros(4)
+        mujoco.mju_negQuat(q_inv, self.current_target_quat)
+        q_diff = np.zeros(4)
+        mujoco.mju_mulQuat(q_diff, dest_quat, q_inv)
+        
+        vel_vec = np.zeros(3)
+        mujoco.mju_quat2Vel(vel_vec, q_diff, 1.0)
+        
+        vel_norm = np.linalg.norm(vel_vec)
+        if vel_norm > 1e-4:
+            # Scale the rotation to match the desired constant angular velocity
+            step_vel = (vel_vec / vel_norm) * min(vel_norm, ANGULAR_VELOCITY)
+            mujoco.mju_quatIntegrate(self.current_target_quat, step_vel, dt)
 
-        # --- 3. Run IK on the interpolated point ---
-        # The IK follows the smoothly moving 'current_ik_target', 
-        # while the visual ball stays at the ultimate destination.
-        self.solve_ik_step(self.current_ik_target, dest_euler)
+        # 3. Waypoint Logic & Visualization Update
+        if dist <= ARRIVAL_TOLERANCE:
+            print(f"WP {self.waypoint_idx} reached. Accuracy: {dist:.5f}m")
+            self.waypoint_idx += 1
+            if self.waypoint_idx < len(WAYPOINTS):
+                self.model.body_pos[self.target_body_id] = WAYPOINTS[self.waypoint_idx][:3]
+                new_q = np.zeros(4)
+                mujoco.mju_euler2Quat(new_q, WAYPOINTS[self.waypoint_idx][3:], 'xyz')
+                self.model.body_quat[self.target_body_id] = new_q
+
+        # 4. Perform Precision IK Solve
+        self.solve_ik(self.current_target_pos, self.current_target_quat)
         return False
 
-    def next_waypoint(self):
-        """Helper to increment index and update visualization"""
-        self.waypoint_idx += 1
-        # Update visual marker to the NEW target if available
-        if self.waypoint_idx < len(WAYPOINTS) and self.target_site_id != -1:
-            self.model.site_pos[self.target_site_id] = WAYPOINTS[self.waypoint_idx][:3]
-
 def main():
-    if not os.path.exists(XML_PATH):
-        print(f"XML not found: {XML_PATH}")
-        return
-
-    model = mujoco.MjModel.from_xml_path(XML_PATH)
+    model = create_model_with_target_pose(XML_PATH, WAYPOINTS[0][:3], WAYPOINTS[0][3:])
     data = mujoco.MjData(model)
-    follower = TrajectoryFollower(model, data)
+    follower = PrecisionPoseFollower(model, data)
 
-    sys.stdout.write("\033[2J\033[H") # Clear terminal
+    sys.stdout.write("\033[2J\033[H")
 
-    # Use passive viewer so we control the stepping loop
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        time.sleep(0.5) # Give viewer a moment to initialize
-
         while viewer.is_running():
             step_start = time.time()
             
-            # Update trajectory logic
             finished = follower.update(model.opt.timestep)
-            if finished:
-                print("\n=== TRAJECTORY COMPLETE ===")
-                # Keep running viewer but stop updating robot
-                while viewer.is_running():
-                     viewer.sync()
-                     time.sleep(0.1)
-                break
-
-            # Step Physics
             mujoco.mj_step(model, data)
-            viewer.sync() 
+            viewer.sync()
 
-            # Simple Dashboard
-            if int(data.time * 100) % 20 == 0:
+            if finished: break
+
+            if int(data.time * 100) % 10 == 0:
+                # Calculate current errors for the dashboard
+                curr_pos = data.body(follower.ee_id).xpos
+                pos_error = np.linalg.norm(curr_pos - follower.current_target_pos)
+                
+                # Orientation error magnitude
+                curr_mat = data.body(follower.ee_id).xmat.reshape(3, 3)
+                target_mat = np.zeros(9)
+                mujoco.mju_quat2Mat(target_mat, follower.current_target_quat)
+                rot_error_mat = target_mat.reshape(3, 3) @ curr_mat.T
+                rot_error_quat = np.zeros(4)
+                mujoco.mju_mat2Quat(rot_error_quat, rot_error_mat.flatten())
+                # Angle difference in radians
+                angle_error = 2 * np.arccos(np.clip(abs(rot_error_quat[0]), 0, 1))
+
                 sys.stdout.write("\033[H")
-                curr_ee = data.body(follower.ee_id).xpos
-                target_wp = WAYPOINTS[min(follower.waypoint_idx, len(WAYPOINTS)-1)][:3]
-                print("========== CONSTANT VELOCITY FOLLOWER ==========")
-                print(f" Sim Time: {data.time:6.2f}s | Current WP Index: {follower.waypoint_idx}/{len(WAYPOINTS)}")
-                print(f" Target WP Pos: [{target_wp[0]:.2f}, {target_wp[1]:.2f}, {target_wp[2]:.2f}]")
-                print(f" Current EE Pos:   [{curr_ee[0]:.2f}, {curr_ee[1]:.2f}, {curr_ee[2]:.2f}]")
-                print(f" Distance to WP: {np.linalg.norm(curr_ee - target_wp):.4f} m")
-                print("================================================")
-                sys.stdout.flush()
+                print("================ HIGH PRECISION POSE DASHBOARD ================")
+                print(f" Sim Time: {data.time:6.2f}s | Target WP: {follower.waypoint_idx}")
+                print(f" Pos Error (m):   {pos_error:10.6f}")
+                print(f" Ori Error (rad): {angle_error:10.6f} (Approx {np.rad2deg(angle_error):.2f}°)")
+                print(f" L2 Dist to WP:  {np.linalg.norm(curr_pos - WAYPOINTS[min(follower.waypoint_idx, len(WAYPOINTS)-1)][:3]):.4f}m")
+                print("===============================================================")
 
-            # Real-time sync
             elapsed = time.time() - step_start
             if elapsed < model.opt.timestep:
                 time.sleep(model.opt.timestep - elapsed)
