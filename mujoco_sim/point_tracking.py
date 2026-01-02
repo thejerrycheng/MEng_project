@@ -168,7 +168,7 @@ def main():
 
             # Step Physics
             mujoco.mj_step(model, data)
-            viewer.sync()
+            viewer.sync() 
 
             # Simple Dashboard
             if int(data.time * 100) % 20 == 0:
