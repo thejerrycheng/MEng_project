@@ -1,0 +1,18 @@
+<mujoco model="iris_obstacle_scene">
+    <include file="iris.xml"/>
+
+    <asset>
+        <material name="obstacle_mat" rgba="0.6 0.2 0.2 1" shininess="0.1"/>
+    </asset>
+
+    <worldbody>
+
+
+        <geom name="cylinder_obstacle" type="cylinder" size="0.1 0.125" pos="0.5 0.4 0.125" 
+              material="obstacle_mat" contype="2" conaffinity="1"/>
+
+        <geom name="cube_obstacle" type="box" size="0.05 0.125 0.125" pos="0.0 0.4 0.125" euler="0 0 90 "
+              material="obstacle_mat" contype="2" conaffinity="1"/>
+
+    </worldbody>
+</mujoco>
