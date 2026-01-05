@@ -4,131 +4,151 @@ import numpy as np
 import time
 import os
 import sys
+from pynput import keyboard
 from collections import deque
 
 # --- Configuration ---
-XML_PATH = os.path.join(os.path.dirname(__file__), "assets", "iris_with_axis.xml")
-START_Q = np.array([0, 60, 90, 0, 0, 0], dtype=np.float64) # Degrees
-STEP_SIZE_POS = 0.002  # m per step
-STEP_SIZE_ROT = 0.01   # rad per step
+CURR_DIR = os.path.dirname(os.path.abspath(__file__))
+XML_PATH = os.path.join(CURR_DIR, "assets", "iris_with_axis.xml")
+HOME_POSITION = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 class IRISKinematics:
-    def __init__(self, model, data):
-        self.model = model
-        self.data = data
-        self.ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_mount")
-        
-        # Initial Target Sync
-        self.data.qpos[:6] = np.deg2rad(START_Q)
-        mujoco.mj_forward(model, data)
-        self.target_pos = self.data.body(self.ee_id).xpos.copy()
-        
-        # Extract initial rotation matrix
-        self.target_mat = self.data.body(self.ee_id).xmat.reshape(3, 3).copy()
-        self.damping = 1e-4
+    def __init__(self):
+        # DH Parameters [theta_offset, d, a, alpha] in Meters
+        self.params = [
+            {'th_off': 0,   'd': 0.2487,   'a': 0.0218,   'alpha': 90},  # J1
+            {'th_off': 90,  'd': 0.0,      'a': 0.299774, 'alpha': 0},   # J2
+            {'th_off': 0,   'd': 0.0,      'a': 0.02,     'alpha': 90},  # J3
+            {'th_off': 0,   'd': 0.315,    'a': 0.0,      'alpha': -90}, # J4
+            {'th_off': 0,   'd': 0.0,      'a': 0.0,      'alpha': 90},  # J5
+            {'th_off': 0,   'd': 0.042824, 'a': 0.0,      'alpha': 0}    # J6
+            {'th_off': 0,   'd': 0.042824, 'a': 0.0,      'alpha': 0}    # ee_mount
+        ]
 
-    def solve_ik(self):
-        """Damped Least Squares IK integration."""
-        # 1. Current State
-        curr_pos = self.data.body(self.ee_id).xpos
-        curr_mat = self.data.body(self.ee_id).xmat.reshape(3, 3)
-        
-        # 2. Compute Errors
-        pos_err = self.target_pos - curr_pos
-        
-        # Orientation error via Axis-Angle
-        rot_err_mat = self.target_mat @ curr_mat.T
-        rot_err_quat = np.zeros(4)
-        mujoco.mju_mat2Quat(rot_err_quat, rot_err_mat.flatten())
-        rot_err_vec = rot_err_quat[1:] * np.sign(rot_err_quat[0])
+    def dh_matrix(self, theta, d, a, alpha):
+        th, al = np.deg2rad(theta), np.deg2rad(alpha)
+        return np.array([
+            [np.cos(th), -np.sin(th)*np.cos(al),  np.sin(th)*np.sin(al), a*np.cos(th)],
+            [np.sin(th),  np.cos(th)*np.cos(al), -np.cos(th)*np.sin(al), a*np.sin(th)],
+            [0,           np.sin(al),             np.cos(al),            d],
+            [0,           0,                      0,                     1]
+        ])
 
-        error = np.concatenate([pos_err, rot_err_vec])
+    def calculate_fk(self, q):
+        T = np.eye(4)
+        for i in range(6):
+            theta = q[i] + self.params[i]['th_off']
+            T = T @ self.dh_matrix(theta, self.params[i]['d'], self.params[i]['a'], self.params[i]['alpha'])
+        return T[:3, 3]
 
-        # 3. Jacobian Calculation
-        jacp = np.zeros((3, self.model.nv))
-        jacr = np.zeros((3, self.model.nv))
-        mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.ee_id)
-        J = np.vstack([jacp, jacr])[:, :6]
-        
-        # 4. Damped Least Squares: dq = J^T * inv(J*J^T + lambda^2 * I) * err
-        n = J.shape[0]
-        dq = J.T @ np.linalg.solve(J @ J.T + self.damping * np.eye(n), error)
-        
-        # 5. Integrate and Clip to joint limits
-        q = self.data.qpos[:6].copy()
-        q += dq * 0.1 # Integration gain
-        self.data.qpos[:6] = np.clip(q, self.model.jnt_range[:6, 0], self.model.jnt_range[:6, 1])
-
-# --- Global Input State ---
+# --- Global Control State ---
+target_q = HOME_POSITION.copy()
+joint_limits = [(-170, 170), (-170, 170), (-150, 150), (-180, 180), (-100, 100), (-360, 360)]
+torque_history = deque(maxlen=10)
 active_keys = set()
 
+def on_press(key):
+    try: active_keys.add(key.char)
+    except AttributeError: pass
+
+def on_release(key):
+    try: active_keys.remove(key.char)
+    except (AttributeError, KeyError): pass
+
 def main():
+    global target_q
     if not os.path.exists(XML_PATH):
         print(f"Error: XML not found at {XML_PATH}")
         return
 
     model = mujoco.MjModel.from_xml_path(XML_PATH)
     data = mujoco.MjData(model)
-    kin = IRISKinematics(model, data)
+    kin = IRISKinematics()
+
+    # Initialization
+    data.qpos[:6] = np.deg2rad(HOME_POSITION)
     
-    torque_history = deque(maxlen=10)
-    sys.stdout.write("\033[2J\033[H") # Clear terminal
+    # Realistic Unitree-style gains (Low Kp, High Damping)
+    kp = np.array([80.0, 120.0, 100.0, 40.0, 30.0, 20.0])
+    kd = np.array([3.5,  5.5,   4.5,   1.8,  1.2,  1.0])
 
-    # Passive viewer handles its own event loop
+    lpf_alpha = 0.25 
+    prev_torque = np.zeros(6)
+    move_speed = 0.1 # Degrees per simulation step while key is held
+
+    control_map = {
+        'q': (0, 1), 'a': (0, -1), 'w': (1, 1), 's': (1, -1),
+        'e': (2, 1), 'd': (2, -1), 'r': (3, 1), 'f': (3, -1),
+        't': (4, 1), 'g': (4, -1), 'y': (5, 1), 'h': (5, -1)
+    }
+
+    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+    listener.start()
+
+    os.system('clear' if os.name == 'posix' else 'cls')
+
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        
-        # --- Native Keyboard Callback ---
-        def key_callback(keycode):
-            try:
-                char = chr(keycode).lower()
-                active_keys.add(char)
-            except: pass
-        
-        viewer.key_callback = key_callback
-
         while viewer.is_running():
             step_start = time.time()
 
-            # 1. Process Key Commands (Multi-key supported)
-            # Position
-            if 'q' in active_keys: kin.target_pos[0] += STEP_SIZE_POS
-            if 'a' in active_keys: kin.target_pos[0] -= STEP_SIZE_POS
-            if 'w' in active_keys: kin.target_pos[1] += STEP_SIZE_POS
-            if 's' in active_keys: kin.target_pos[1] -= STEP_SIZE_POS
-            if 'e' in active_keys: kin.target_pos[2] += STEP_SIZE_POS
-            if 'd' in active_keys: kin.target_pos[2] -= STEP_SIZE_POS
-            
-            # Simulated key release for passive viewer callback logic
-            active_keys.clear() 
+            # 1. Multi-Key Processing
+            # Iterate through the map; if key is in active_keys, increment target_q
+            for key, (idx, direction) in control_map.items():
+                if key in active_keys:
+                    new_val = target_q[idx] + direction * move_speed
+                    target_q[idx] = np.clip(new_val, joint_limits[idx][0], joint_limits[idx][1])
 
-            # 2. IK and Physics
-            kin.solve_ik()
+            # 2. Physics States
+            current_q_deg = np.rad2deg(data.qpos[:6])
+            current_v_deg = np.rad2deg(data.qvel[:6])
+
+            # 3. Gravity Compensation
+            mujoco.mj_forward(model, data)
+            gravity_comp = data.qfrc_passive[:6]
+
+            # 4. Control Calculation (PD + Gravity Comp)
+            raw_torque = (kp * (target_q - current_q_deg)) - (kd * current_v_deg) + gravity_comp
+            
+            # 5. Low Pass Filter (LPF) for Torque
+            filtered_torque = lpf_alpha * raw_torque + (1 - lpf_alpha) * prev_torque
+            data.ctrl[:6] = filtered_torque
+            prev_torque = filtered_torque
+
+            # 6. Logging History
+            torque_history.append(data.actuator_force[:6].copy())
+
             mujoco.mj_step(model, data)
             viewer.sync()
 
-            # 3. Dashboard
+            # 7. Flicker-Free Dashboard
             if int(data.time * 100) % 10 == 0:
-                curr_q_deg = np.rad2deg(data.qpos[:6])
-                sim_pos = data.body(kin.ee_id).xpos
+                avg_torque = np.mean(torque_history, axis=0)
+                sim_pos = data.body('wrist2').xpos 
+                analytical_pos = kin.calculate_fk(current_q_deg)
                 
                 sys.stdout.write("\033[H")
                 out = [
-                    "=================== IRIS IK TELEOP DASHBOARD ===================",
-                    f" Time: {data.time:6.2f}s | Focus the Sim Window to move",
-                    "-" * 64,
-                    f"{'COORD':<8} | {'X (m)':^12} | {'Y (m)':^12} | {'Z (m)':^12}",
-                    "-" * 64,
-                    f"{'Target':<8} | {kin.target_pos[0]:10.3f}   | {kin.target_pos[1]:10.3f}   | {kin.target_pos[2]:10.3f}",
-                    f"{'Actual':<8} | {sim_pos[0]:10.3f}   | {sim_pos[1]:10.3f}   | {sim_pos[2]:10.3f}",
-                    "-" * 64,
-                    f" L2 Tracking Error: {np.linalg.norm(sim_pos - kin.target_pos):.6f}",
-                    " Controls: [QAWSED] for Cartesian XYZ | [R] to Reset Pose",
-                    "================================================================"
+                    "=================== IRIS MULTI-KEY DASHBOARD ===================",
+                    f" Time: {data.time:6.2f}s | Mode: Unitree Realism | LPF: {lpf_alpha}",
+                    "-" * 68,
+                    f"{'Joint':<8} | {'Target (°)':^12} | {'Actual (°)':^12} | {'Avg Trq(Nm)':^12}",
+                    "-" * 68
                 ]
+                for i in range(6):
+                    out.append(f" J{i+1:<7} | {target_q[i]:10.1f}   | {current_q_deg[i]:10.1f}   | {avg_torque[i]:10.2f}")
+                
+                out.extend([
+                    "-" * 68,
+                    f"{'EE POS':<8} | {'X (m)':^12} | {'Y (m)':^12} | {'Z (m)':^12}",
+                    f"{'Sim':<8} | {sim_pos[0]:10.3f}   | {sim_pos[1]:10.3f}   | {sim_pos[2]:10.3f}",
+                    f"{'DH':<8} | {analytical_pos[0]:10.3f}   | {analytical_pos[1]:10.3f}   | {analytical_pos[2]:10.3f}",
+                    "-" * 68,
+                    f" L2 Error: {np.linalg.norm(sim_pos - analytical_pos):.6f}",
+                    "================================================================"
+                ])
                 sys.stdout.write("\n".join(out) + "\n")
                 sys.stdout.flush()
 
-            # Real-time sync
             elapsed = time.time() - step_start
             if elapsed < model.opt.timestep:
                 time.sleep(model.opt.timestep - elapsed)
