@@ -16,7 +16,7 @@ KP = 600.0  # Proportional Gain
 KD = 50.0   # Derivative Gain
 
 # Movement Sensitivities
-MOVE_SPEED = 0.1  
+MOVE_SPEED = 0.2
 ROT_SPEED = 0.5   
 
 # --- Global Control State ---
