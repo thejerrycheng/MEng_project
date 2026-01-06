@@ -23,7 +23,7 @@ Two scripts:
 
 ---
 
-## Quick Start Demo Scripts Under ```python/demo/```
+## Quick Start Demo Scripts Under `python/demo/`
 
 ### 1) Collect a Path
 
