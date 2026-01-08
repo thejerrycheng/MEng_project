@@ -1,0 +1,8 @@
+prefix=/home/jerry/Desktop/MEng_project/meng_ws/devel
+
+Name: bag_reader
+Description: Description of bag_reader
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

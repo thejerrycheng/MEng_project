@@ -1,0 +1,8 @@
+prefix=/home/jerry/Desktop/MEng_project/meng_ws/devel
+
+Name: unitree_arm_ros
+Description: Description of unitree_arm_ros
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

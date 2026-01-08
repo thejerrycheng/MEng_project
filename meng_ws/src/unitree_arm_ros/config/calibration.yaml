@@ -1,0 +1,8 @@
+description: 'Home calibration: arm fully extended upward'
+joint_offsets:
+  joint_1: 0.9322650925365417
+  joint_2: 2.749145986899257
+  joint_3: -0.29222645441361383
+  joint_4: 0.617077346754479
+  joint_5: -0.008724082078101558
+  joint_6: 0.08560504873381278

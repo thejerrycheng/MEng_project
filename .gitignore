@@ -6,9 +6,21 @@
 # Keep all json
 !*.json
 
-# Completely ignore large workspace
-meng_ws/
-
 # Never commit secrets
 github_password.txt
 
+# ===============================
+# bag_reader – collected data only
+# ===============================
+
+# Rosbag recordings
+meng_ws/src/bag_reader/scripts/*.bag
+
+# Collected sensor data
+meng_ws/src/bag_reader/scripts/rgb_data/
+meng_ws/src/bag_reader/scripts/depth_data/
+meng_ws/src/bag_reader/scripts/robot_data/
+meng_ws/src/bag_reader/scripts/saved_clips/
+
+# Python cache
+meng_ws/src/bag_reader/scripts/__pycache__/
