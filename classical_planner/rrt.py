@@ -15,7 +15,7 @@ SAVE_DIR = os.path.join(MUJOCO_SIM_DIR, "optimal_path_rrt")
 START_Q = np.array([0.0, -0.8, -1.5, 0.0, 1.2, 0.0])
 GOAL_Q  = np.array([0.8, 0.6, -1.0, 0.5, -0.5, 1.5])
 
-MAX_SAMPLES = 10000
+MAX_SAMPLES = 1000
 STEP_SIZE = 0.15
 SEARCH_RADIUS = 0.6
 MAX_VIZ_GEOMS = 4800
@@ -206,7 +206,17 @@ def render_final_path_offscreen(model, path_q, out_png, out_mp4,
     data = mujoco.MjData(model)
 
     # Offscreen renderer
-    renderer = mujoco.Renderer(model, height=height, width=width)
+        # --------------------------------------------------
+    # Safe renderer size (prevents MuJoCo crash)
+    # --------------------------------------------------
+    safe_w, safe_h = _safe_render_size(model, width, height)
+
+    renderer = mujoco.Renderer(
+        model,
+        width=safe_w,
+        height=safe_h
+    )
+
 
     cam = mujoco.MjvCamera()
     opt = mujoco.MjvOption()
@@ -251,7 +261,7 @@ def render_final_path_offscreen(model, path_q, out_png, out_mp4,
     # --- Make a “hero” still image ---
     data.qpos[:6] = path_q[0]
     mujoco.mj_forward(model, data)
-    renderer.update_scene(data, camera=cam, options=opt)
+    renderer.update_scene(data, camera=cam, scene_option=opt)
     overlay_path_geoms()
     img = renderer.render()
     imageio.imwrite(out_png, img)
@@ -265,7 +275,7 @@ def render_final_path_offscreen(model, path_q, out_png, out_mp4,
     for _ in range(hold_frames):
         data.qpos[:6] = path_q[0]
         mujoco.mj_forward(model, data)
-        renderer.update_scene(data, camera=cam, options=opt)
+        renderer.update_scene(data, camera=cam, scene_option=opt)
         overlay_path_geoms()
         writer.append_data(renderer.render())
 
@@ -276,7 +286,7 @@ def render_final_path_offscreen(model, path_q, out_png, out_mp4,
             for _ in range(frames_per_wp):
                 data.qpos[:6] = q
                 mujoco.mj_forward(model, data)
-                renderer.update_scene(data, camera=cam, options=opt)
+                renderer.update_scene(data, camera=cam, scene_option=opt)
                 overlay_path_geoms()
                 writer.append_data(renderer.render())
 
@@ -284,11 +294,37 @@ def render_final_path_offscreen(model, path_q, out_png, out_mp4,
         for _ in range(hold_frames):
             data.qpos[:6] = path_q[-1]
             mujoco.mj_forward(model, data)
-            renderer.update_scene(data, camera=cam, options=opt)
+            renderer.update_scene(data, camera=cam, scene_option=opt)
             overlay_path_geoms()
             writer.append_data(renderer.render())
 
     writer.close()
+
+def _safe_render_size(model, width, height):
+    """
+    Clamp requested render size to MuJoCo framebuffer limits
+    to avoid Renderer crashes.
+    """
+    fb_w = int(model.vis.global_.offwidth)
+    fb_h = int(model.vis.global_.offheight)
+
+    # MuJoCo defaults to 640x480 if not specified in XML
+    if fb_w <= 0:
+        fb_w = 640
+    if fb_h <= 0:
+        fb_h = 480
+
+    safe_w = min(width, fb_w)
+    safe_h = min(height, fb_h)
+
+    if safe_w != width or safe_h != height:
+        print(
+            f"[WARN] Requested render size {width}x{height} exceeds "
+            f"framebuffer {fb_w}x{fb_h}. "
+            f"Clamping to {safe_w}x{safe_h}."
+        )
+
+    return safe_w, safe_h
 
 
 def visualize_final_path_in_viewer(model, path_q, speed=1.0):
@@ -474,22 +510,22 @@ def main():
 
     # ---------------------------
     # 3) FINAL PATH VISUALIZATION (works in headless!)
-    # ---------------------------
-    out_png = os.path.join(SAVE_DIR, "final_path.png")
-    out_mp4 = os.path.join(SAVE_DIR, "final_path.mp4")
-    render_final_path_offscreen(
-        model,
-        path_q,
-        out_png=out_png,
-        out_mp4=out_mp4,
-        width=args.width,
-        height=args.height,
-        fps=args.fps,
-        hold_seconds=2.0,
-        animate_robot=True
-    )
-    print(f"[!] Exported: {out_png}")
-    print(f"[!] Exported: {out_mp4}")
+    # # ---------------------------
+    # out_png = os.path.join(SAVE_DIR, "final_path.png")
+    # out_mp4 = os.path.join(SAVE_DIR, "final_path.mp4")
+    # render_final_path_offscreen(
+    #     model,
+    #     path_q,
+    #     out_png=out_png,
+    #     out_mp4=out_mp4,
+    #     width=args.width,
+    #     height=args.height,
+    #     fps=args.fps,
+    #     hold_seconds=2.0,
+    #     animate_robot=True
+    # )
+    # print(f"[!] Exported: {out_png}")
+    # print(f"[!] Exported: {out_mp4}")
 
     # Optional: open viewer to show only the FINAL path (no tree)
     if (not args.headless) or (not args.no_final_viewer):

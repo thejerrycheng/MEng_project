@@ -1,284 +1,204 @@
 import mujoco
+import mujoco.viewer
 import numpy as np
 import os
-import csv
-import time
+import sys
+import argparse
 
-# ============================================================
-# Configuration
-# ============================================================
-# ------------------------------------------------------------
-# Robust project root resolution
-# ------------------------------------------------------------
-CURR_DIR = os.path.dirname(os.path.abspath(__file__))          # classical_planner/
-PROJECT_ROOT = os.path.dirname(CURR_DIR)                       # MEng_project/
+# ---------- Configuration ----------
+CURR_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CURR_DIR)
+MUJOCO_SIM_DIR = os.path.join(PROJECT_ROOT, "mujoco_sim")
+XML_PATH = os.path.join(MUJOCO_SIM_DIR, "assets", "obstacle.xml")
+SAVE_DIR = os.path.join(MUJOCO_SIM_DIR, "optimal_path_rrt")
 
-XML_PATH = os.path.join(
-    PROJECT_ROOT,
-    "mujoco_sim",
-    "assets",
-    "obstacle.xml"
-)
+START_Q = np.array([0.0, -0.8, -1.5, 0.0, 1.2, 0.0])
+GOAL_Q  = np.array([0.8, 0.6, -1.0, 0.5, -0.5, 1.5])
 
-# Save under CURRENT FOLDER
-SAVE_ROOT = os.path.join(os.getcwd(), "random_rrt_dataset")
-os.makedirs(SAVE_ROOT, exist_ok=True)
+MAX_SAMPLES = 1000
+STEP_SIZE = 0.15
+SEARCH_RADIUS = 0.6
+MAX_VIZ_GEOMS = 4800
 
-MAX_EPISODES = 100
-MAX_RRT_SAMPLES = 20000
-
-# Densification (rad per step in joint space)
-WAYPOINT_RESOLUTION = 0.02   # smaller = denser path
-
-# Workspace (positive X/Y only)
-WS_X = (0.3, 0.9)
-WS_Y = (0.1, 0.9)
-
-# ============================================================
-# CSV Utility
-# ============================================================
-def save_csv(path, header, rows):
-    with open(path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        writer.writerows(rows)
-
-# ============================================================
-# Obstacle Manager (FIXED geometry, random pose)
-# ============================================================
-class ObstacleManager:
-    """
-    Matches MJCF:
-
-    <geom name="cylinder_obstacle" type="cylinder" size="0.1 0.125"/>
-    <geom name="cube_obstacle"     type="box"      size="0.05 0.125 0.125"/>
-    """
-
-    def __init__(self, model):
-        self.model = model
-
-        self.obstacles = {
-            "cylinder_obstacle": {
-                "type": "cylinder",
-                "size": np.array([0.1, 0.125]),  # radius, half-height
-            },
-            "cube_obstacle": {
-                "type": "box",
-                "size": np.array([0.05, 0.125, 0.125]),
-            }
-        }
-
-        self.geom_ids = {
-            name: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
-            for name in self.obstacles
-        }
-
-    def randomize(self):
-        placements = []
-
-        for name, cfg in self.obstacles.items():
-            gid = self.geom_ids[name]
-            if gid < 0:
-                continue
-
-            x = np.random.uniform(*WS_X)
-            y = np.random.uniform(*WS_Y)
-
-            # Place on floor
-            z = cfg["size"][-1]
-
-            yaw = np.random.uniform(-np.pi, np.pi)
-
-            self.model.geom_pos[gid] = [x, y, z]
-
-            quat = np.zeros(4)
-            mujoco.mju_axisAngle2Quat(quat, np.array([0, 0, 1]), yaw)
-            self.model.geom_quat[gid] = quat
-
-            placements.append({
-                "name": name,
-                "type": cfg["type"],
-                "x": x,
-                "y": y,
-                "z": z,
-                "yaw": yaw,
-                "size": cfg["size"].tolist()
-            })
-
-        return placements
-
-# ============================================================
-# Global RRT* (Joint Space, Offline)
-# ============================================================
+# ---------- RRT* ----------
 class GlobalRRTStar:
     def __init__(self, model, start_q, goal_q):
         self.model = model
         self.check_data = mujoco.MjData(model)
+        self.ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_mount")
 
         self.nodes = [start_q.copy()]
         self.parents = {0: None}
         self.costs = {0: 0.0}
+        self.node_ee_positions = [self.get_ee_pos(start_q)]
 
         self.goal_q = goal_q.copy()
         self.samples_count = 0
         self.goal_found = False
         self.best_goal_node = None
         self.best_cost = float("inf")
+        self.all_samples = []
 
-    def is_collision_free(self, q):
+    def get_ee_pos(self, q):
         self.check_data.qpos[:6] = q
         mujoco.mj_forward(self.model, self.check_data)
-        return self.check_data.ncon == 0
+        return self.check_data.body(self.ee_id).xpos.copy()
+
+    def is_collision_free(self, q1, q2=None):
+        def check(q):
+            self.check_data.qpos[:6] = q
+            mujoco.mj_forward(self.model, self.check_data)
+            return self.check_data.ncon == 0
+
+        if q2 is None:
+            return check(q)
+
+        for t in np.linspace(0, 1, 6):
+            if not check(q1 + t * (q2 - q1)):
+                return False
+        return True
 
     def step(self):
-        if self.samples_count >= MAX_RRT_SAMPLES:
+        if self.samples_count >= MAX_SAMPLES:
             return False
 
         self.samples_count += 1
+        p = np.random.rand()
 
-        if self.goal_found and np.random.rand() < 0.6:
-            path = self.get_path_indices()
-            q_base = self.nodes[np.random.choice(path)]
-            q_rand = q_base + np.random.normal(0, 0.25, 6)
-        elif np.random.rand() < 0.1:
+        if self.goal_found and p < 0.5:
+            q_rand = self.nodes[self.best_goal_node] + np.random.normal(0, 0.2, 6)
+        elif p < 0.15:
             q_rand = self.goal_q
         else:
             q_rand = np.random.uniform(-np.pi, np.pi, 6)
 
         node_arr = np.array(self.nodes)
-        nearest_idx = np.argmin(np.linalg.norm(node_arr - q_rand, axis=1))
-        q_near = self.nodes[nearest_idx]
+        nearest = int(np.argmin(np.linalg.norm(node_arr - q_rand, axis=1)))
+        q_near = self.nodes[nearest]
 
-        diff = q_rand - q_near
-        dist = np.linalg.norm(diff)
-        if dist < 1e-6:
+        d = np.linalg.norm(q_rand - q_near)
+        if d < 1e-9:
             return True
 
-        q_new = q_near + 0.2 * diff / dist
-
-        if not self.is_collision_free(q_new):
+        q_new = q_near + (q_rand - q_near) / d * min(d, STEP_SIZE)
+        if not self.is_collision_free(q_near, q_new):
             return True
 
         dists = np.linalg.norm(node_arr - q_new, axis=1)
-        neighbors = np.where(dists < 0.8)[0]
+        neighbors = np.where(dists < SEARCH_RADIUS)[0]
 
-        best_parent = nearest_idx
-        min_cost = self.costs[nearest_idx] + np.linalg.norm(q_new - q_near)
+        best_p = nearest
+        best_c = self.costs[nearest] + np.linalg.norm(q_new - q_near)
 
-        for n in neighbors:
-            c = self.costs[n] + np.linalg.norm(q_new - self.nodes[n])
-            if c < min_cost:
-                best_parent, min_cost = n, c
+        for i in neighbors:
+            c = self.costs[i] + np.linalg.norm(q_new - self.nodes[i])
+            if c < best_c:
+                best_p, best_c = i, c
 
-        new_idx = len(self.nodes)
-        self.nodes.append(q_new)
-        self.parents[new_idx] = best_parent
-        self.costs[new_idx] = min_cost
+        idx = len(self.nodes)
+        self.nodes.append(q_new.copy())
+        self.parents[idx] = best_p
+        self.costs[idx] = best_c
+        self.node_ee_positions.append(self.get_ee_pos(q_new))
 
-        for n in neighbors:
-            c = self.costs[new_idx] + np.linalg.norm(self.nodes[n] - q_new)
-            if c < self.costs[n]:
-                self.parents[n] = new_idx
-                self.costs[n] = c
-
-        if np.linalg.norm(q_new - self.goal_q) < 0.2:
+        if np.linalg.norm(q_new - self.goal_q) < STEP_SIZE:
             self.goal_found = True
-            if min_cost < self.best_cost:
-                self.best_cost = min_cost
-                self.best_goal_node = new_idx
+            if best_c < self.best_cost:
+                self.best_cost = best_c
+                self.best_goal_node = idx
 
         return True
 
-    def get_path_indices(self):
+    def extract_best_path_q(self):
         if self.best_goal_node is None:
-            return []
-
+            return None
         path = []
-        curr = self.best_goal_node
-        while curr is not None:
-            path.append(curr)
-            curr = self.parents[curr]
-        return path[::-1]
+        cur = self.best_goal_node
+        while cur is not None:
+            path.append(self.nodes[cur])
+            cur = self.parents[cur]
+        return np.array(path[::-1])
 
-# ============================================================
-# Path Densification (CRITICAL)
-# ============================================================
-def densify_joint_path(joint_path, resolution=0.02):
-    dense = [joint_path[0]]
-
-    for q0, q1 in zip(joint_path[:-1], joint_path[1:]):
-        dist = np.linalg.norm(q1 - q0)
-        steps = max(2, int(dist / resolution))
-        for a in np.linspace(0, 1, steps, endpoint=False)[1:]:
-            dense.append((1 - a) * q0 + a * q1)
-
-    dense.append(joint_path[-1])
-    return dense
-
-# ============================================================
-# Main Dataset Generation
-# ============================================================
-def main():
-    model = mujoco.MjModel.from_xml_path(XML_PATH)
+# ---------- Final Path Viewer (STAYS OPEN) ----------
+def visualize_final_path_in_viewer(model, path_q):
+    data = mujoco.MjData(model)
     ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "ee_mount")
 
-    obs_mgr = ObstacleManager(model)
+    id_mat = np.eye(3).flatten()
+    zero = np.zeros(3)
 
-    for ep in range(MAX_EPISODES):
-        ep_dir = os.path.join(SAVE_ROOT, f"episode_{ep:03d}")
-        os.makedirs(ep_dir, exist_ok=True)
+    # Precompute EE points
+    tmp = mujoco.MjData(model)
+    ee_pts = []
+    for q in path_q:
+        tmp.qpos[:6] = q
+        mujoco.mj_forward(model, tmp)
+        ee_pts.append(tmp.body(ee_id).xpos.copy())
 
-        # 1. Randomize obstacles
-        obstacles = obs_mgr.randomize()
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        # --- play once ---
+        for q in path_q:
+            if not viewer.is_running():
+                return
+            data.qpos[:6] = q
+            mujoco.mj_forward(model, data)
 
-        # 2. Start / Goal
-        start_q = np.array([0.0, -0.6, -1.2, 0.0, 1.0, 0.0])
-        goal_q  = np.array([0.6,  0.4, -0.8, 0.3, 0.6, 0.0])
+            viewer.user_scn.ngeom = 0
+            for i in range(len(ee_pts) - 1):
+                idx = viewer.user_scn.ngeom
+                mujoco.mjv_initGeom(
+                    viewer.user_scn.geoms[idx],
+                    mujoco.mjtGeom.mjGEOM_LINE,
+                    zero, zero, id_mat,
+                    np.array([1, 0, 0, 1], dtype=np.float32)
+                )
+                mujoco.mjv_connector(
+                    viewer.user_scn.geoms[idx],
+                    mujoco.mjtGeom.mjGEOM_LINE,
+                    0.01,
+                    ee_pts[i],
+                    ee_pts[i + 1]
+                )
+                viewer.user_scn.ngeom += 1
 
-        # 3. RRT*
-        rrt = GlobalRRTStar(model, start_q, goal_q)
-        t0 = time.time()
+            viewer.sync()
 
-        while time.time() - t0 < 10.0:
+        # --- hold final pose indefinitely ---
+        while viewer.is_running():
+            viewer.sync()
+
+# ---------- Main ----------
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--headless", action="store_true")
+    args = parser.parse_args()
+
+    os.makedirs(SAVE_DIR, exist_ok=True)
+
+    model = mujoco.MjModel.from_xml_path(XML_PATH)
+    data = mujoco.MjData(model)
+    rrt = GlobalRRTStar(model, START_Q, GOAL_Q)
+
+    if args.headless:
+        while rrt.samples_count < MAX_SAMPLES:
             rrt.step()
-            if rrt.goal_found:
-                break
+    else:
+        with mujoco.viewer.launch_passive(model, data) as viewer:
+            while viewer.is_running() and rrt.samples_count < MAX_SAMPLES:
+                for _ in range(40):
+                    rrt.step()
+                viewer.sync()
 
-        if not rrt.goal_found:
-            print(f"[Episode {ep}] ❌ planning failed")
-            continue
+    path_q = rrt.extract_best_path_q()
+    if path_q is None:
+        print("[FAIL] No path found.")
+        return
 
-        sparse_path = [rrt.nodes[i] for i in rrt.get_path_indices()]
-        joint_path = densify_joint_path(sparse_path, WAYPOINT_RESOLUTION)
+    np.save(os.path.join(SAVE_DIR, "waypoints.npy"), path_q)
+    print(f"[OK] Saved {len(path_q)} waypoints.")
 
-        # 4. EE path
-        tmp = mujoco.MjData(model)
-        ee_path = []
-        for q in joint_path:
-            tmp.qpos[:6] = q
-            mujoco.mj_forward(model, tmp)
-            ee_path.append(tmp.body(ee_id).xpos.copy())
-
-        # 5. Save CSVs
-        save_csv(
-            os.path.join(ep_dir, "path.csv"),
-            ["idx","q1","q2","q3","q4","q5","q6","x","y","z"],
-            [[i, *joint_path[i], *ee_path[i]] for i in range(len(joint_path))]
-        )
-
-        save_csv(
-            os.path.join(ep_dir, "obstacles.csv"),
-            ["name","type","x","y","z","yaw","size"],
-            [[o["name"], o["type"], o["x"], o["y"], o["z"], o["yaw"], o["size"]] for o in obstacles]
-        )
-
-        save_csv(
-            os.path.join(ep_dir, "meta.csv"),
-            ["success","samples","cost","num_waypoints"],
-            [[1, rrt.samples_count, rrt.best_cost, len(joint_path)]]
-        )
-
-        print(f"[Episode {ep}] ✅ saved {len(joint_path)} waypoints")
+    visualize_final_path_in_viewer(model, path_q)
+    print("[DONE] Viewer will remain open until you close it.")
 
 if __name__ == "__main__":
     main()
