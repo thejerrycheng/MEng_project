@@ -1,6 +1,10 @@
 <mujoco model="iris_obstacle_scene">
     <include file="iris.xml"/>
 
+    <visual>
+        <global offwidth="1280" offheight="720"/>
+    </visual>
+
     <asset>
         <material name="obstacle_mat" rgba="0.6 0.2 0.2 1" shininess="0.1"/>
     </asset>
