@@ -1,23 +1,28 @@
 import mujoco
-import mujoco.viewer
 import numpy as np
-import time
 import os
-import sys
+import csv
+import time
 
-# --- Configuration ---
+# =============================
+# Configuration
+# =============================
 CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURR_DIR)
 MUJOCO_SIM_DIR = os.path.join(PROJECT_ROOT, "mujoco_sim")
 XML_PATH = os.path.join(MUJOCO_SIM_DIR, "assets", "obstacle.xml")
 
-# Tracking Gains (High stiffness for precise tracking)
-KP_ID, KD_ID = 2500.0, 150.0
+SAVE_ROOT = os.path.join(MUJOCO_SIM_DIR, "random_rrt_dataset")
+os.makedirs(SAVE_ROOT, exist_ok=True)
 
-# RRT* Hyperparameters
+MAX_EPISODES = 100
 MAX_RRT_SAMPLES = 20000
-RRT_STEP_SIZE = 0.2
-RRT_SEARCH_RADIUS = 0.8
+
+# Workspace (positive x/y, on floor)
+WS_X = (0.3, 0.8)
+WS_Y = (0.1, 0.8)
+FLOOR_Z = 0.0
+
 
 # ==========================================
 # 1. Scene & Workspace Manager
