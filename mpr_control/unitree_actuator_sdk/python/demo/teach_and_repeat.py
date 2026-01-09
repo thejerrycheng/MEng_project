@@ -4,50 +4,56 @@ import math
 import sys
 import threading
 import csv
+import numpy as np
 
-# For this example, we use input() to control recording.
-sys.path.append('../lib')
-from unitree_actuator_sdk import *
-
-# ----------------------------
 # Robot and Communication Setup
-# ----------------------------
-serial = SerialPort('/dev/ttyUSB0')
-cmd = MotorCmd()
-data = MotorData()
+sys.path.append('../lib')
+try:
+    from unitree_actuator_sdk import *
+except ImportError:
+    print("Error: unitree_actuator_sdk not found. Ensure the library path is correct.")
+    sys.exit(1)
 
-# Motor IDs for the 6 joints.
-motor_ids = [0, 1, 2, 3, 4, 5]
+# ----------------------------
+# Configuration
+# ----------------------------
+SERIAL_PORT = '/dev/ttyUSB0'
+MOTOR_TYPE = MotorType.GO_M8010_6
+MOTOR_IDS = [0, 1, 2, 3, 4, 5]
 
 # Impedance settings for active playback (nonzero gains).
-impedance_settings = {
+IMPEDANCE_SETTINGS = {
     0: {"kp": 1.5, "kd": 0.05},
     1: {"kp": 2.5, "kd": 0.15},
     2: {"kp": 2.5, "kd": 0.15},
-    3: {"kp": 1, "kd": 0.025},
-    4: {"kp": 1, "kd": 0.125},
-    5: {"kp": 1, "kd": 0.125},
+    3: {"kp": 1.0, "kd": 0.025},
+    4: {"kp": 1.0, "kd": 0.125},
+    5: {"kp": 1.0, "kd": 0.125},
 }
 
+# Initialize Hardware
+serial = SerialPort(SERIAL_PORT)
+cmd = MotorCmd()
+data = MotorData()
+
 # ----------------------------
-# Passive Read Function (Demonstration Mode)
+# Motor Functions
 # ----------------------------
+
 def read_motor(motor_id):
     """
-    Reads the motor state in passive mode.
-    To avoid applying any torque, we first read the current sensor value and then
-    re-command that same value with zero gains.
+    Reads motor state in passive mode.
+    Commanding current position with zero gains ensures transparency.
     """
-    # Read current sensor value.
-    data.motorType = MotorType.GO_M8010_6
-    cmd.motorType = MotorType.GO_M8010_6
-    cmd.mode = queryMotorMode(MotorType.GO_M8010_6, MotorMode.FOC)
+    data.motorType = MOTOR_TYPE
+    cmd.motorType = MOTOR_TYPE
+    cmd.mode = queryMotorMode(MOTOR_TYPE, MotorMode.FOC)
     cmd.id = motor_id
     serial.sendRecv(cmd, data)
-    current_position = data.q
-
-    # Re-command current position with zero corrective gains.
-    cmd.q = current_position
+    
+    current_pos = data.q
+    # Re-command with zero gains to stay passive
+    cmd.q = current_pos
     cmd.dq = 0.0
     cmd.kp = 0.0
     cmd.kd = 0.0
@@ -55,35 +61,37 @@ def read_motor(motor_id):
     serial.sendRecv(cmd, data)
     
     return {
-         "id": motor_id,
-         "position": data.q,
-         "velocity": data.dq,
-         "temperature": data.temp,
-         "motor_error": data.merror
+        "id": motor_id,
+        "position": data.q,
+        "velocity": data.dq,
+        "temp": data.temp,
+        "error": data.merror
     }
 
 def read_all_motors():
-    """
-    Reads all motor positions in passive mode and returns a list of positions.
-    """
-    positions = []
-    for motor_id in motor_ids:
-        motor_data = read_motor(motor_id)
-        positions.append(motor_data["position"])
-    return positions
+    return [read_motor(mid)["position"] for mid in MOTOR_IDS]
+
+def actuate_motor(motor_id, desired_position):
+    """Commands a motor with active impedance gains."""
+    data.motorType = MOTOR_TYPE
+    cmd.motorType = MOTOR_TYPE
+    cmd.mode = queryMotorMode(MOTOR_TYPE, MotorMode.FOC)
+    cmd.id = motor_id
+    cmd.q = desired_position
+    cmd.dq = 0.0
+    cmd.kp = IMPEDANCE_SETTINGS[motor_id]["kp"]
+    cmd.kd = IMPEDANCE_SETTINGS[motor_id]["kd"]
+    cmd.tau = 0.0
+    serial.sendRecv(cmd, data)
+    return data.q
 
 # ----------------------------
-# Recording Demonstration Data
+# Recording Logic
 # ----------------------------
-# Each element is a dict: { "time": <timestamp>, "positions": [pos_motor0, pos_motor1, ...] }
 demonstration_data = []
-recording = True  # Global flag to control recording
+recording = False
 
 def record_demonstration():
-    """
-    In demonstration mode the human manually moves the robot arm.
-    This function continuously reads the motor sensor data in passive mode and records the joint positions.
-    """
     global demonstration_data, recording
     last_print_time = time.time()
     try:
@@ -91,157 +99,136 @@ def record_demonstration():
             current_positions = read_all_motors()
             demonstration_data.append({
                 "time": time.time(),
-                "positions": current_positions.copy()
+                "positions": current_positions
             })
-            # Optionally print current positions every 0.1 seconds.
+            
             if time.time() - last_print_time >= 0.1:
-                pos_str = "  ".join("{:.4f}".format(p) for p in current_positions)
-                print("Recorded positions: " + pos_str)
+                pos_str = " ".join(f"{p:.4f}" for p in current_positions)
+                print(f"Recording: {pos_str}")
                 last_print_time = time.time()
-            time.sleep(0.005)
+            
+            time.sleep(0.005) # 200Hz sampling
     except Exception as e:
-        print("Error during demonstration recording:", e)
+        print(f"Recording error: {e}")
 
 # ----------------------------
-# Active Actuation Function (Playback Mode)
+# Smooth Motion Logic
 # ----------------------------
-def actuate_motor(motor_id, desired_position):
-    """
-    Actively command the motor to move to the desired_position using nonzero impedance gains.
-    This function is used during playback and hold phases.
-    """
-    data.motorType = MotorType.GO_M8010_6
-    cmd.motorType = MotorType.GO_M8010_6
-    cmd.mode = queryMotorMode(MotorType.GO_M8010_6, MotorMode.FOC)
-    cmd.id = motor_id
-    cmd.q = desired_position
-    cmd.dq = 0.0
-    cmd.kp = impedance_settings[motor_id]["kp"]
-    cmd.kd = impedance_settings[motor_id]["kd"]
-    cmd.tau = 0.0
-    serial.sendRecv(cmd, data)
-    return data.q
 
-# ----------------------------
-# Move Robot to Starting Position (Playback Mode)
-# ----------------------------
-def move_to_starting_position(start_positions):
+def move_to_starting_position(target_positions, duration=3.0):
     """
-    Gradually moves the robot to the starting joint configuration (first recorded sample) during playback.
-    If 5 seconds elapse without reaching the target, playback will commence from the current positions.
+    Moves the robot to the target configuration using a Sine-wave interpolation
+    to ensure 0 velocity at start and end, providing smooth torque continuity.
     """
-    print("Moving to starting position...")
-    threshold = 0.01  # Acceptable error in position
+    print(f"Moving to starting position smoothly over {duration}s...")
+    
+    initial_positions = read_all_motors()
     start_time = time.time()
+    
+    # Run control loop at 100Hz for smoothness
     while True:
-        current_positions = read_all_motors()
-        errors = [abs(current_positions[i] - start_positions[i]) for i in range(len(motor_ids))]
-        if all(e < threshold for e in errors):
+        elapsed = time.time() - start_time
+        if elapsed > duration:
             break
-        if time.time() - start_time > 5:
-            print("Timeout reached while moving to starting position. Starting playback from current positions.")
-            break
-        for i, motor_id in enumerate(motor_ids):
-            delta = start_positions[i] - current_positions[i]
-            step = delta * 0.1  # Proportional step
-            new_cmd = current_positions[i] + step
-            actuate_motor(motor_id, new_cmd)
-        time.sleep(0.1)
-    print("Starting position reached (or timeout).")
+            
+        # alpha goes from 0.0 to 1.0
+        alpha = elapsed / duration
+        
+        # Sine-based interpolation (Smoothstep profile)
+        # alpha_smooth = 0 at start, 1 at end, with 0 derivative at both.
+        alpha_smooth = 0.5 * (1 - math.cos(math.pi * alpha))
+        
+        for i, motor_id in enumerate(MOTOR_IDS):
+            # Calculate interpolated setpoint
+            pos_cmd = initial_positions[i] + (target_positions[i] - initial_positions[i]) * alpha_smooth
+            actuate_motor(motor_id, pos_cmd)
+            
+        time.sleep(0.01) # 100Hz command frequency
 
-# ----------------------------
-# Playback the Recorded Demonstration
-# ----------------------------
+    # Final check: Ensure we hold the exact target
+    for i, motor_id in enumerate(MOTOR_IDS):
+        actuate_motor(motor_id, target_positions[i])
+    print("Start position reached.")
+
 def playback_demonstration(demo_data):
-    """
-    Replays the demonstration path by actively commanding the motors to follow the recorded joint positions.
-    The recorded timestamps are used to preserve the relative timing.
-    """
     if not demo_data:
-        print("No demonstration data recorded!")
+        print("No data to playback.")
         return
 
-    print("Replaying demonstration...")
+    print("Replaying path...")
     t0 = demo_data[0]["time"]
-    relative_times = [sample["time"] - t0 for sample in demo_data]
     playback_start = time.time()
     
-    for i, sample in enumerate(demo_data):
-        # Wait until it's time for the next command.
-        desired_time = relative_times[i]
-        while time.time() - playback_start < desired_time:
+    for sample in demo_data:
+        desired_time = sample["time"] - t0
+        # Sync loop to recorded timing
+        while (time.time() - playback_start) < desired_time:
             time.sleep(0.001)
-        positions = sample["positions"]
-        for j, motor_id in enumerate(motor_ids):
-            actuate_motor(motor_id, positions[j])
-        time.sleep(0.005)
-    print("Playback complete.")
+            
+        for i, motor_id in enumerate(MOTOR_IDS):
+            actuate_motor(motor_id, sample["positions"][i])
+            
+    print("Playback finished.")
 
 # ----------------------------
-# Main Routine
+# Main
 # ----------------------------
 if __name__ == '__main__':
     try:
-        # Initialize motors in passive mode (no torque applied).
-        print("Initializing motors in passive mode (no torque applied)...")
-        for motor_id in motor_ids:
-            read_motor(motor_id)
-        print("Motors are in passive state. You may now manually move the arm.")
-
-        # Ask user to begin demonstration.
-        answer = input("Are you ready to start the demonstration? (y/n): ")
-        if answer.strip().lower() != 'y':
-            print("Exiting demonstration program.")
+        # Passive initialization
+        print("Initializing motors (Passive Mode)...")
+        for mid in MOTOR_IDS:
+            read_motor(mid)
+        
+        if input("Start demonstration? (y/n): ").lower() != 'y':
             sys.exit(0)
 
-        print("\n=== Expert Demonstration Mode ===")
-        print("Manually move the robot arm. No active control is applied.")
-        print("When finished, press ENTER to stop recording.\n")
+        print("\n=== Passive Recording Active ===")
+        print("Guiding the arm manually. Press ENTER to stop.\n")
 
-        # Start recording demonstration data in a separate thread.
         recording = True
         demo_thread = threading.Thread(target=record_demonstration)
         demo_thread.start()
 
-        # Wait for user to indicate the demonstration is finished.
-        input("Press ENTER to stop recording the demonstration...")
+        input("Recording... Press ENTER to stop.")
         recording = False
         demo_thread.join()
 
-        # Save the recorded data to a CSV file.
+        # Save to CSV
         csv_filename = "demonstration_data.csv"
-        with open(csv_filename, "w", newline="") as csvfile:
-            writer = csv.writer(csvfile)
-            header = ["timestamp"] + [f"motor{i+1}" for i in range(len(motor_ids))]
-            writer.writerow(header)
-            for sample in demonstration_data:
-                row = [sample["time"]] + sample["positions"]
-                writer.writerow(row)
-        print("Demonstration data saved to", csv_filename)
+        with open(csv_filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["timestamp"] + [f"m{i}" for i in MOTOR_IDS])
+            for s in demonstration_data:
+                writer.writerow([s["time"]] + s["positions"])
+        print(f"Data saved to {csv_filename}")
 
-        # Ask user if playback should be performed.
-        repeat = input("Repeat the path? (y/n): ")
-        if repeat.strip().lower() == 'y':
-            # Move the robot to the starting configuration using active control.
-            starting_positions = demonstration_data[0]["positions"]
-            move_to_starting_position(starting_positions)
-            # Replay the demonstration using active control.
+        # Playback sequence
+        if input("\nRepeat path? (y/n): ").lower() == 'y':
+            start_conf = demonstration_data[0]["positions"]
+            # 1. Smoothly move to start to avoid jerks
+            move_to_starting_position(start_conf, duration=4.0)
+            # 2. Replay recorded trajectory
             playback_demonstration(demonstration_data)
-            # Use the last recorded positions for the final hold.
-            final_positions = demonstration_data[-1]["positions"]
-            print("Playback complete. Holding final position.")
+            
+            final_pos = demonstration_data[-1]["positions"]
         else:
-            print("Playback not initiated. Holding current position.")
-            final_positions = read_all_motors()
+            final_pos = read_all_motors()
 
-        # Hold the final position indefinitely.
-        print("Holding final position. Press Ctrl+C to exit.")
+        # Infinite hold
+        print("\nSequence complete. Holding position. Ctrl+C to exit.")
         while True:
-            for i, motor_id in enumerate(motor_ids):
-                actuate_motor(motor_id, final_positions[i])
-            time.sleep(0.1)
+            for i, mid in enumerate(MOTOR_IDS):
+                actuate_motor(mid, final_pos[i])
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
-        print("\nScript interrupted by user. Exiting gracefully...")
-        # Instead of cutting power, hold the final position before exiting.
-        print("Holding final position. Program terminated by user.")
+        print("\nInterrupted. Holding safety position.")
+        try:
+            # Hold current position one last time before exiting
+            safe_pos = read_all_motors()
+            for i, mid in enumerate(MOTOR_IDS):
+                actuate_motor(mid, safe_pos[i])
+        except:
+            pass
+        print("Program closed.")
