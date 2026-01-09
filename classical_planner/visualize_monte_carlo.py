@@ -16,10 +16,10 @@ XML_PATH = os.path.join(
     PROJECT_ROOT,
     "mujoco_sim",
     "assets",
-    "obstacle.xml"
+    "scene2.xml"
 )
 
-RRT_DATASET_ROOT = os.path.join(CURR_DIR, "random_rrt_dataset")
+RRT_DATASET_ROOT = os.path.join(CURR_DIR, "random_rrt_dataset2")
 APF_DATASET_ROOT = os.path.join(CURR_DIR, "APF_path")
 
 MAX_GEOMS = 4000
