@@ -1,36 +1,44 @@
 # ========================================
-# Ignore collected image data
+# Large datasets (new folder structure)
 # ========================================
-*.png
-*.jpg
-*.jpeg
+raw_data/
+rosbag_data/
+processed_data/
 
-# But keep JSON configs and calibration
-!*.json
-
-# ========================================
-# Never commit secrets
-# ========================================
-github_password.txt
-
-# ========================================
-# bag_reader – collected data only
-# ========================================
-
-# Rosbag recordings
-meng_ws/src/bag_reader/scripts/*.bag
+# Also ignore any rosbag files anywhere
 *.bag
 
-# Collected sensor data folders
+# ========================================
+# Generated IL datasets inside workspace
+# ========================================
+meng_ws/src/il_training/saved_clips/
+meng_ws/src/il_training/processed_dataset/
+
+# ========================================
+# bag_reader collected sensor dumps only
+# (keep code, ignore collected outputs)
+# ========================================
 meng_ws/src/bag_reader/scripts/rgb_data/
 meng_ws/src/bag_reader/scripts/depth_data/
 meng_ws/src/bag_reader/scripts/robot_data/
 meng_ws/src/bag_reader/scripts/saved_clips/
 
 # ========================================
-# General dataset folder
+# Ignore generated images in data folders
 # ========================================
-data/
+*.png
+*.jpg
+*.jpeg
+
+# But keep paper figures
+!paper/**/*.png
+!paper/**/*.jpg
+!paper/**/*.jpeg
+
+# ========================================
+# Keep JSON config & calibration files
+# ========================================
+!*.json
 
 # ========================================
 # Trained models / ML artifacts
@@ -39,6 +47,7 @@ data/
 *.pth
 *.ckpt
 *.onnx
+*.npz
 
 # ========================================
 # ROS build artifacts
@@ -55,8 +64,14 @@ __pycache__/
 *.pyc
 
 # ========================================
+# Secrets
+# ========================================
+github_password.txt
+
+# ========================================
 # Editor / OS junk
 # ========================================
 .DS_Store
 .vscode/
 .idea/
+
