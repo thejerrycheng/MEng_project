@@ -22,19 +22,15 @@ CALIB_PATH = "/home/jerry/Desktop/MEng_project/meng_ws/src/unitree_arm_ros/confi
 # Config
 # ==================================================
 JOINT_NAMES = [
-    "joint_1",
-    "joint_2",
-    "joint_3",
-    "joint_4",
-    "joint_5",
-    "joint_6",
+    "joint_1","joint_2","joint_3",
+    "joint_4","joint_5","joint_6"
 ]
 
 NUM_JOINTS = 6
 RATE_HZ = 200
 DT = 1.0 / RATE_HZ
 
-# Teleop velocity (rad/s)
+# Jog velocities (rad/s)
 VEL = np.array([0.6, 0.6, 0.6, 0.8, 1.0, 1.0])
 
 # ==================================================
@@ -47,44 +43,59 @@ class KeyboardJointTeleopROS:
     def __init__(self):
         rospy.init_node("keyboard_joint_teleop_ros")
 
-        # ROS
-        self.cmd_pub = rospy.Publisher("/arm/command", JointState, queue_size=1)
+        # ROS I/O
+        self.cmd_pub   = rospy.Publisher("/arm/command", JointState, queue_size=1)
         self.state_sub = rospy.Subscriber("/joint_states", JointState, self.state_cb, queue_size=1)
 
-        # Calibration
+        # Calibration offsets (for MuJoCo visualization only)
         self.offsets = load_calibration(CALIB_PATH)
 
-        # Desired joint state
-        self.q_des = None
+        # Joint states
+        self.q_des = None        # joint command sent to robot
+        self.q_vis = None        # visualization joint pose
         self.state_ready = False
 
-        # Key state (velocity control)
+        # Key velocity state
         self.key_vel = np.zeros(NUM_JOINTS)
 
-        # MuJoCo visualization
+        # MuJoCo
         self.model = mujoco.MjModel.from_xml_path(XML_PATH)
-        self.data = mujoco.MjData(self.model)
+        self.data  = mujoco.MjData(self.model)
 
         rospy.loginfo("==============================================")
-        rospy.loginfo(" Keyboard Joint Teleop (SMOOTH)")
+        rospy.loginfo(" Keyboard Joint Teleop (Robot + MuJoCo)")
         rospy.loginfo(" Starts from current robot pose")
         rospy.loginfo(" Controls: qawsed rftg y/h")
+        rospy.loginfo(" x : exit")
         rospy.loginfo("==============================================")
 
     # ------------------------------------------------
     def state_cb(self, msg):
-        """Latch current robot pose ONCE as starting point"""
+        """
+        Latch current robot joint state ONCE as starting point.
+        """
         if self.state_ready:
             return
 
         name_to_idx = {n: i for i, n in enumerate(msg.name)}
+
         self.q_des = np.zeros(NUM_JOINTS)
+        self.q_vis = np.zeros(NUM_JOINTS)
 
         for i, j in enumerate(JOINT_NAMES):
-            self.q_des[i] = msg.position[name_to_idx[j]] - self.offsets.get(j, 0.0)
+            raw = msg.position[name_to_idx[j]]
+            self.q_des[i] = raw                    # true robot joint command
+            self.q_vis[i] = raw - self.offsets.get(j, 0.0)  # visualization pose
 
         self.state_ready = True
-        rospy.loginfo("Teleop initialized from current joint state")
+        rospy.loginfo("Teleop initialized from current robot pose")
+
+        # ---- publish one initial lock command ----
+        init_msg = JointState()
+        init_msg.name = JOINT_NAMES
+        init_msg.position = self.q_des.tolist()
+        self.cmd_pub.publish(init_msg)
+        rospy.sleep(0.1)
 
     # ------------------------------------------------
     def publish_command(self):
@@ -96,7 +107,7 @@ class KeyboardJointTeleopROS:
 
     # ------------------------------------------------
     def handle_key(self, key):
-        """Set velocity directions based on key state"""
+        """Set velocity direction based on key"""
         self.key_vel[:] = 0.0
 
         # Base joints
@@ -132,15 +143,19 @@ class KeyboardJointTeleopROS:
 
     # ------------------------------------------------
     def integrate(self):
-        """Integrate joint velocities"""
+        """Integrate velocity to target position"""
         self.q_des += self.key_vel * VEL * DT
+
+        # Update visualization pose
+        for i, j in enumerate(JOINT_NAMES):
+            self.q_vis[i] = self.q_des[i] - self.offsets.get(j, 0.0)
 
     # ------------------------------------------------
     def run(self, stdscr):
         stdscr.nodelay(True)
         stdscr.addstr(
             0, 0,
-            "Keyboard Teleop (smooth) — qawsed rftg y/h, x=exit"
+            "Keyboard Teleop — qawsed rftg y/h | x = exit"
         )
         stdscr.refresh()
 
@@ -148,6 +163,7 @@ class KeyboardJointTeleopROS:
 
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
             while not rospy.is_shutdown() and viewer.is_running():
+
                 if not self.state_ready:
                     rate.sleep()
                     continue
@@ -161,14 +177,14 @@ class KeyboardJointTeleopROS:
                 else:
                     self.key_vel[:] = 0.0
 
-                # Integrate velocity → position
+                # Integrate velocity → joint command
                 self.integrate()
 
-                # Publish to robot
+                # Publish to real robot
                 self.publish_command()
 
-                # Visualize in MuJoCo
-                self.data.qpos[:NUM_JOINTS] = self.q_des
+                # Update MuJoCo visualization
+                self.data.qpos[:NUM_JOINTS] = self.q_vis
                 mujoco.mj_forward(self.model, self.data)
                 viewer.sync()
 
