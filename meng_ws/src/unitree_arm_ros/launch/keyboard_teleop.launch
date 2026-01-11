@@ -1,0 +1,21 @@
+<launch>
+
+  <!-- ======================================== -->
+  <!-- Keyboard Teleoperation + MuJoCo Viewer -->
+  <!-- Assumes hardware node is already running -->
+  <!-- ======================================== -->
+
+  <!-- Wait until /joint_states exists -->
+  <node pkg="rosnode"
+        type="rosnode"
+        name="wait_for_joint_states"
+        args="wait /joint_states"
+        output="screen" />
+
+  <!-- Keyboard Joint Teleop -->
+  <node pkg="unitree_arm_ros"
+        type="keyboard_joint_teleop.py"
+        name="keyboard_joint_teleop"
+        output="screen" />
+
+</launch>

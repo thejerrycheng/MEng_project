@@ -1,0 +1,15 @@
+<launch>
+
+  <!-- ======================================== -->
+  <!-- IRIS Hardware Bringup -->
+  <!-- Assumes Conda environment is already active -->
+  <!-- ======================================== -->
+
+  <node pkg="unitree_arm_ros"
+        type="iris_hw_node.py"
+        name="iris_hw_node"
+        output="screen"
+        respawn="true"
+        respawn_delay="2" />
+
+</launch>

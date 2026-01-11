@@ -31,7 +31,7 @@ RATE_HZ = 200
 DT = 1.0 / RATE_HZ
 
 # Jog velocities (rad/s)
-VEL = np.array([0.6, 0.6, 0.6, 0.8, 1.0, 1.0])
+VEL = np.array([1, 1, 1, 1, 1.0, 1.0])
 
 # ==================================================
 def load_calibration(path):
