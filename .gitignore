@@ -1,26 +1,62 @@
+# ========================================
 # Ignore collected image data
+# ========================================
 *.png
 *.jpg
 *.jpeg
 
-# Keep all json
+# But keep JSON configs and calibration
 !*.json
 
+# ========================================
 # Never commit secrets
+# ========================================
 github_password.txt
 
-# ===============================
+# ========================================
 # bag_reader – collected data only
-# ===============================
+# ========================================
 
 # Rosbag recordings
 meng_ws/src/bag_reader/scripts/*.bag
+*.bag
 
-# Collected sensor data
+# Collected sensor data folders
 meng_ws/src/bag_reader/scripts/rgb_data/
 meng_ws/src/bag_reader/scripts/depth_data/
 meng_ws/src/bag_reader/scripts/robot_data/
 meng_ws/src/bag_reader/scripts/saved_clips/
 
+# ========================================
+# General dataset folder
+# ========================================
+data/
+
+# ========================================
+# Trained models / ML artifacts
+# ========================================
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# ========================================
+# ROS build artifacts
+# ========================================
+build/
+devel/
+install/
+log/
+
+# ========================================
 # Python cache
-meng_ws/src/bag_reader/scripts/__pycache__/
+# ========================================
+__pycache__/
+*.pyc
+
+# ========================================
+# Editor / OS junk
+# ========================================
+.DS_Store
+.vscode/
+.idea/
