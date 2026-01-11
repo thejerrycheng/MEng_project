@@ -5,35 +5,42 @@ DATA_DIR="$HOME/Desktop/MEng_project/rosbag_data"
 mkdir -p "$DATA_DIR"
 
 # -----------------------------
-# Default prefix
-# -----------------------------
-PREFIX="bag"   # default if user does not pass -O
-
-# -----------------------------
 # Parse arguments
 # -----------------------------
+GOAL=""
+
 while [[ $# -gt 0 ]]; do
   case $1 in
-    -O|--prefix)
-      PREFIX="$2"
-      shift 2
+    --goal)
+      GOAL="$2_$3_$4"
+      shift 4
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: record_data.sh [-O PREFIX]"
+      echo "Usage: record_data.sh --goal X Y Z"
       exit 1
       ;;
   esac
 done
 
 # -----------------------------
-# Build filename: PREFIX_DATE
+# Check goal provided
+# -----------------------------
+if [[ -z "$GOAL" ]]; then
+  echo "❌ ERROR: Goal must be provided."
+  echo "Usage: record_data.sh --goal X Y Z"
+  exit 1
+fi
+
+# -----------------------------
+# Build filename: GOAL_DATE
 # -----------------------------
 DATE_TAG=$(date +"%Y%m%d_%H%M%S")
-FINAL_NAME="${PREFIX}_${DATE_TAG}"
+FINAL_NAME="${GOAL}_goal_${DATE_TAG}"
 
 echo "=========================================="
 echo " IRIS Data Collection"
+echo " Goal (end-effector target): $GOAL"
 echo " Saving to: $DATA_DIR/${FINAL_NAME}.bag"
 echo " Press Ctrl+C to stop recording"
 echo "=========================================="
