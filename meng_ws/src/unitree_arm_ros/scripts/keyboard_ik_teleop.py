@@ -25,7 +25,7 @@ NUM_JOINTS = 6
 RATE_HZ = 200
 DT = 1.0 / RATE_HZ
 
-MOVE_SPEED = 0.10    # m/s
+MOVE_SPEED = 0.25    # m/s
 ROT_SPEED  = 0.50    # rad/s
 
 JOINT_LIMITS_DEG = [(-170,170),(-170,170),(-150,150),(-180,180),(-100,100),(-360,360)]
@@ -45,13 +45,21 @@ def clamp_qpos(qpos):
     return np.clip(qpos, limit_min, limit_max)
 
 def mat2euler(mat):
+    """Return Roll-Pitch-Yaw (XYZ convention)"""
     sy = np.sqrt(mat[0,0]**2 + mat[1,0]**2)
     if sy > 1e-6:
         roll  = np.arctan2(mat[2,1], mat[2,2])
         pitch = np.arctan2(-mat[2,0], sy)
         yaw   = np.arctan2(mat[1,0], mat[0,0])
         return np.array([roll, pitch, yaw])
-    return np.array([0.0, np.arctan2(-mat[2,0], sy), 0.0)
+    else:
+        # Gimbal singular fallback
+        return np.array([
+            0.0,
+            np.arctan2(-mat[2,0], sy),
+            0.0
+        ])
+
 
 # ==================================================
 class MujocoIKTeleopROS:
