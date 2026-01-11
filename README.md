@@ -1,41 +1,39 @@
-# IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control
+# **IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control**
 
-This repository contains the full hardware, simulation, control, data collection, and learning stack for **IRIS (Intelligent Robotic Imaging System)** — a low-cost, 3D-printed 6-DOF robot arm designed for smooth, repeatable visuomotor motion generation.  
+This repository contains the full hardware, simulation, control, data collection, and learning stack for **IRIS (Intelligent Robotic Imaging System)** — a low-cost, 3D-printed 6-DOF robot arm designed for smooth, repeatable visuomotor motion generation.
 The codebase supports **MuJoCo simulation**, **real-robot control via Unitree BLDC actuators**, **ROS-based data collection**, **classical motion planning**, and **visuomotor imitation learning**, enabling seamless **sim-to-real and real-to-sim** workflows.
 
 ---
 
-## Repository Structure
+## **Repository Structure**
 
 ```
-
 MEng_project/
-├── mujoco_sim/              # MuJoCo simulation, kinematics, dynamics, planners
+├── mujoco_sim/              # MuJoCo simulation, kinematics, planners
 ├── classical_planner/       # RRT*, potential-field, and trajectory generation
-├── mpr_control/             # Real robot low-level control (Unitree actuator SDK)
-├── motor_control/           # Motor-level control and diagnostics
+├── mpr_control/             # Low-level actuator SDK and motor control
+├── motor_control/           # Motor diagnostics and testing
 ├── meng_ws/                 # ROS workspace (hardware interface, teleop, logging)
-├── bag_reader/              # ROS bag recording and dataset extraction tools
+├── bag_reader/              # Rosbag recording and dataset extraction tools
 ├── sim2real/                # Sim–real synchronization utilities
 ├── il_training/             # Visuomotor imitation learning training code
 ├── inverse_kinematics_sim/  # Analytical and numerical IK solvers
 ├── paper/                   # LaTeX source for the accompanying paper
 └── README.md
-
 ```
 
 ---
 
-## 1. MuJoCo Simulation Quick Start
+## **1. MuJoCo Simulation**
 
-The MuJoCo simulator is used for:
+MuJoCo is used for:
 
-- Kinematic verification
-- Classical motion planning (RRT\*, potential fields)
-- Trajectory preview
-- Real–sim synchronization
+* Kinematic verification
+* Classical motion planning (RRT*, potential fields)
+* Trajectory preview
+* Real–sim synchronization
 
-### Setup
+### **Setup**
 
 ```bash
 cd mujoco_sim
@@ -43,49 +41,44 @@ bash setup_env.sh
 pip install -r requirement.txt
 ```
 
-### Launch a simulation demo script
+### **Run simulation demos**
 
 ```bash
-python cinema_line_tracking.py  # Tracking cinematic path
-python circle_path_tracking.py  # Trakcing a defined circle
-python line_path_tracking.py    # Tracking a line
+python cinema_line_tracking.py
+python circle_path_tracking.py
+python line_path_tracking.py
 ```
 
-### Launch a teleoperation script
+### **Interactive teleoperation**
 
 ```bash
-python teleop_ik.py         # Interactive IK teleoperation
-python teleop_fk.py         # Interactive FK teleoperation
+python teleop_ik.py     # Cartesian IK teleoperation
+python teleop_fk.py     # Joint-space teleoperation
 ```
 
 ---
 
-Here is a **concise, professional revision** with the SDK source and download reference added, suitable for a research repo README:
+## **2. Actuator Control and SDK (Unitree BLDC)**
 
----
+Low-level torque and position control are implemented using the official **Unitree GO-series actuator SDK**.
 
-## 2. Actuator Control and SDK Download (Unitree BLDC Actuators)
+### **SDK Download**
 
-Low-level torque and position control are implemented using the official **Unitree actuator SDK** for GO-series motors.
+* Official documentation:
+  [https://support.unitree.com/home/en/Actuator](https://support.unitree.com/home/en/Actuator)
 
-### SDK Download
+* SDK repository:
+  [https://github.com/unitreerobotics/unitree_actuator_sdk](https://github.com/unitreerobotics/unitree_actuator_sdk)
 
-The Unitree actuator SDK can be obtained from:
-
-- Official documentation: https://support.unitree.com/home/en/Actuator
-- SDK repository (GO-series motors): https://github.com/unitreerobotics/unitree_actuator_sdk
-
-After downloading, place the SDK under:
+Place the SDK at:
 
 ```
-
 mpr_control/unitree_actuator_sdk/
-
 ```
 
 ---
 
-### Setup
+### **Setup**
 
 ```bash
 cd mpr_control/unitree_actuator_sdk/python
@@ -94,7 +87,7 @@ pip install -r requirements.txt
 
 ---
 
-### Run basic motor test
+### **Run basic motor tests**
 
 ```bash
 python example_goM8010_6_motor.py
@@ -105,19 +98,20 @@ python velocity_teleop.py
 
 ---
 
-## 3. IRIS Robot Control
+## **3. IRIS Real Robot Control**
 
-### Demo Scripts
+Joint-space impedance control with gravity compensation runs on the host PC.
+Motors communicate over **RS-485 at 1 kHz**, enabling low-latency multi-joint closed-loop control.
+
+### **Demo scripts**
 
 ```bash
-python teach_and_repeat.py   # Teach and repeat script
-python calibratoin.py        # This calibrate and save the home position (by default the home is considered pointing upwards)
-python repeatability_test.py # This test out the repeatabilty of the robot arm
+python teach_and_repeat.py
+python calibration.py          # Save home pose calibration
+python repeatability_test.py
 ```
 
----
-
-### Execute planned trajectories
+### **Execute planned trajectories**
 
 ```bash
 python position_tracking.py
@@ -125,21 +119,17 @@ python position_tracking.py
 
 ---
 
-Joint-space impedance control with gravity compensation is implemented on the host computer.
-Motor commands and state feedback are communicated over an **RS-485 bus at 1 kHz**, enabling low-latency multi-joint closed-loop control.
+## **4. ROS Interface and Real–Sim Synchronization**
 
----
+ROS provides:
 
-## 3. ROS Interface and Real–Sim Synchronization
+* Hardware state publishing
+* Command streaming
+* Teleoperation
+* Rosbag data recording
+* MuJoCo real–sim mirroring
 
-ROS is used for:
-
-- Hardware state publishing
-- Command streaming
-- Rosbag data recording
-- MuJoCo real–sim mirroring
-
-### Build ROS workspace
+### **Build ROS workspace**
 
 ```bash
 cd meng_ws
@@ -147,126 +137,159 @@ catkin_make
 source devel/setup.bash
 ```
 
-### Launch hardware interface
+### **Launch hardware interface**
 
 ```bash
 rosrun unitree_arm_ros unitree_hw_node.py
 ```
 
-### Teleoperation
+### **Keyboard joint teleoperation**
+
+```bash
+rosrun unitree_arm_ros keyboard_joint_teleop.py
+```
+
+### **MuJoCo IK teleoperation**
 
 ```bash
 rosrun unitree_arm_ros keyboard_ik_teleop.py
 ```
 
-### Real–Sim bridge
+### **MuJoCo visualization of real robot**
 
 ```bash
-rosrun unitree_arm_ros mujoco_ik_ros_node.py
+rosrun unitree_arm_ros mujoco_visualizer.py
 ```
 
 ---
 
-## 4. Dataset Collection
+## **5. Rosbag Data Collection**
 
-Demonstrations are collected from:
+All real-robot demonstrations are recorded using ROS bags, including:
 
-- **Planner-generated trajectories** executed on hardware
-- **Kinesthetic drag-and-teach human demonstrations**
+* RGB images
+* Depth images
+* Camera calibration
+* Joint feedback
+* Joint command targets
+* TF transforms
+* Timestamps
 
-### Record ROS bag
+### **Record a demonstration**
 
 ```bash
 cd bag_reader/scripts
-bash iris_rosbag_record.sh
+bash iris_rosbag_record.sh -O demo_name
 ```
 
-### Convert rosbag to training dataset
+This produces:
 
-```bash
-python rosbag_reader.py
-python process.py
+```
+rosbag_data/demo_name_YYYYMMDD_HHMMSS.bag
 ```
 
-Outputs synchronized:
+Recorded topics include:
 
-- RGB frames
-- Joint positions / velocities
-- End-effector trajectories
+```
+/arm/command
+/joint_states
+/tf
+/tf_static
+/camera/color/image_raw
+/camera/color/camera_info
+/camera/depth/image_rect_raw
+/camera/depth/camera_info
+```
+
+Stop recording with **Ctrl+C**.
 
 ---
 
-## 5. Imitation Learning Training
+## **6. Rosbag Dataset Processing**
 
-Visuomotor imitation learning models are trained in `il_training/`.
+Recorded rosbags are converted into structured training datasets.
 
-### Prepare dataset split
+### **Process a bag**
+
+```bash
+cd bag_reader/scripts
+bash process_bag.sh --bag demo_name_YYYYMMDD_HHMMSS
+```
+
+### **Outputs**
+
+```
+raw_data/demo_name_YYYYMMDD_HHMMSS/
+ ├── rgb/                 # RGB frames (timestamp-named PNGs)
+ ├── depth/               # Depth frames (16UC1 PNGs)
+ ├── joint_states.csv     # Robot joint feedback
+ ├── arm_command.csv      # Commanded joint targets
+ ├── camera_info_color.json
+ └── camera_info_depth.json
+```
+
+These datasets are directly consumed by the imitation learning pipeline.
+
+---
+
+## **7. Imitation Learning Training**
+
+Visuomotor imitation learning models are trained in:
+
+```
+il_training/
+```
+
+### **Prepare dataset splits**
 
 ```bash
 cd il_training
 python train_data_split.py
 ```
 
-### Train RGB Transformer policy
+### **Train RGB policy**
 
 ```bash
 python train_rgb_transformer.py
 ```
 
-### Alternative CNN baselines
+### **CNN baselines**
 
 ```bash
 python train_rgb.py
 python train_depth_cnn.py
 ```
 
-Trained models predict short-horizon joint trajectories conditioned on RGB observations and robot state.
+Models predict short-horizon joint trajectories conditioned on RGB observations and robot state.
 
 ---
 
-## 6. Sim-to-Real and Real-to-Sim Execution
+## **8. Sim-to-Real and Real-to-Sim**
 
 Planned or learned trajectories can be:
 
-- Previewed in MuJoCo
-- Executed on hardware
-- Logged and replayed in simulation
+* Previewed in MuJoCo
+* Executed on hardware
+* Logged on ROS
+* Replayed in simulation
 
-The `sim2real/` and ROS bridge nodes provide time-synchronized state and command streaming for reproducible experiments.
-
----
-
-<!--
-## 7. Paper
-
-The accompanying system and learning framework are described in:
-
-```
-paper/
-```
-
-Build with:
-
-```bash
-cd paper
-pdflatex main.tex
-bibtex main
-pdflatex main.tex
-```
-
---- -->
-
-## Requirements
-
-- Python ≥ 3.8
-- MuJoCo ≥ 2.3
-- ROS Noetic
-- NVIDIA GPU recommended for training
-- Unitree GO-M8010-6 actuators for hardware experiments
+Nodes in `sim2real/` and ROS bridge tools provide synchronized streaming for reproducible experiments.
 
 ---
 
-## Contact
+## **Requirements**
 
-Qilong (Jerry) Cheng
+* Python ≥ 3.8
+* MuJoCo ≥ 2.3
+* ROS Noetic
+* Intel RealSense RGB-D camera
+* Unitree GO-M8010-6 actuators
+* NVIDIA GPU recommended for training
+
+---
+
+## **Contact**
+
+**Qilong (Jerry) Cheng**
+NYU Robotics
 [qc1007@nyu.edu](mailto:qc1007@nyu.edu)
