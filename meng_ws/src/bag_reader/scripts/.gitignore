@@ -1,7 +1,0 @@
-# Ignore all runtime-collected data
-rgb_data/
-depth_data/
-robot_data/
-saved_clips/
-*.bag
-__pycache__/

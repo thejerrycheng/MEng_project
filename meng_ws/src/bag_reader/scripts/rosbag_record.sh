@@ -1,1 +1,0 @@
-rosbag record -O $(NAME_OF_THE_BAG)$ /tf /tf_static /ufactory/joint_states /camera/color/image_raw /camera/color/camera_info /camera/depth/camera_info /camera/depth/color/points /camera/depth/image_rect_raw /camera/extrinsics/depth_to_color
