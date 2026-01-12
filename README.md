@@ -1,73 +1,73 @@
-# **IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control**
+# 🎥 **IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control**
 
-This repository contains the full hardware, simulation, control, data collection, and learning stack for **IRIS (Intelligent Robotic Imaging System)** — a low-cost, 3D-printed 6-DOF robot arm designed for smooth, repeatable visuomotor motion generation.
-The codebase supports **MuJoCo simulation**, **real-robot control via Unitree BLDC actuators**, **ROS-based data collection**, **classical motion planning**, and **visuomotor imitation learning**, enabling seamless **sim-to-real and real-to-sim** workflows.
+> **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
+> This repository contains the complete **hardware, simulation, control, ROS data collection, and learning stack**, enabling seamless **sim-to-real and real-to-sim** workflows.
+
+<p align="center">
+  <img src="docs/media/iris_hero.gif" width="85%">
+</p>
+
+<p align="center">
+  <a href="#1-hardware-platform">1️⃣ Hardware</a> •
+  <a href="#2-low-level-actuator-control">2️⃣ Actuator Control</a> •
+  <a href="#3-mujoco-simulation">3️⃣ MuJoCo Simulation</a> •
+  <a href="#4-ros-interface-and-rosbag-collection">4️⃣ ROS + Rosbags</a> •
+  <a href="#5-data-processing">5️⃣ Data Processing</a> •
+  <a href="#6-imitation-learning">6️⃣ Imitation Learning</a> •
+  <a href="#7-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
+</p>
 
 ---
 
-## **Repository Structure**
+## 🗂 Repository Structure
 
 ```
 MEng_project/
 ├── mujoco_sim/              # MuJoCo simulation, kinematics, planners
-├── classical_planner/       # RRT*, potential-field, and trajectory generation
-├── mpr_control/             # Low-level actuator SDK and motor control
+├── classical_planner/       # RRT*, potential-field, trajectory generation
+├── mpr_control/             # Unitree actuator SDK + low-level control
 ├── motor_control/           # Motor diagnostics and testing
 ├── meng_ws/                 # ROS workspace (hardware interface, teleop, logging)
 ├── bag_reader/              # Rosbag recording and dataset extraction tools
 ├── sim2real/                # Sim–real synchronization utilities
 ├── il_training/             # Visuomotor imitation learning training code
 ├── inverse_kinematics_sim/  # Analytical and numerical IK solvers
-├── paper/                   # LaTeX source for the accompanying paper
+├── paper/                   # LaTeX source for accompanying paper
 └── README.md
 ```
 
 ---
 
-## **1. MuJoCo Simulation**
+## 1️⃣ Hardware Platform
 
-MuJoCo is used for:
+IRIS is a **fully 3D-printed 6-DOF robotic camera arm** driven by **Unitree GO-M8010-6 torque-controlled BLDC actuators**.
+The design emphasizes low cost, modularity, and high backdrivability for kinesthetic teaching.
 
-* Kinematic verification
-* Classical motion planning (RRT*, potential fields)
-* Trajectory preview
-* Real–sim synchronization
+### 🔩 3D Models and CAD
 
-### **Setup**
+* 📐 **Mechanical CAD (STEP + STL):**
+  👉 [https://github.com/thejerrycheng/IRIS-Hardware](https://github.com/thejerrycheng/IRIS-Hardware)
 
-```bash
-cd mujoco_sim
-bash setup_env.sh
-pip install -r requirement.txt
-```
+* 🖨️ **Printable STL files:**
+  👉 [https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL](https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL)
 
-### **Run simulation demos**
-
-```bash
-python cinema_line_tracking.py
-python circle_path_tracking.py
-python line_path_tracking.py
-```
-
-### **Interactive teleoperation**
-
-```bash
-python teleop_ik.py     # Cartesian IK teleoperation
-python teleop_fk.py     # Joint-space teleoperation
-```
+<p align="center">
+  <img src="docs/media/iris_cad.png" width="70%">
+</p>
 
 ---
 
-## **2. Actuator Control and SDK (Unitree BLDC)**
+## 2️⃣ Low-Level Actuator Control
 
-Low-level torque and position control are implemented using the official **Unitree GO-series actuator SDK**.
+Low-level torque, velocity, and position control is implemented using the **official Unitree GO-series actuator SDK**.
+Motors communicate over **RS-485 at 1 kHz**, enabling synchronized multi-joint closed-loop control with gravity compensation and impedance control.
 
-### **SDK Download**
+### 📘 Unitree SDK and Documentation
 
-* Official documentation:
+* **Official Actuator Documentation:**
   [https://support.unitree.com/home/en/Actuator](https://support.unitree.com/home/en/Actuator)
 
-* SDK repository:
+* **Unitree Actuator SDK Repository:**
   [https://github.com/unitreerobotics/unitree_actuator_sdk](https://github.com/unitreerobotics/unitree_actuator_sdk)
 
 Place the SDK at:
@@ -76,60 +76,79 @@ Place the SDK at:
 mpr_control/unitree_actuator_sdk/
 ```
 
----
-
-### **Setup**
+### ⚙️ Setup
 
 ```bash
 cd mpr_control/unitree_actuator_sdk/python
 pip install -r requirements.txt
 ```
 
----
-
-### **Run basic motor tests**
+### ▶️ Example Motor Demos
 
 ```bash
-python example_goM8010_6_motor.py
-python position_teleop.py
-python torque_teleop.py
-python velocity_teleop.py
+python example_goM8010_6_motor.py     # Motor diagnostics
+python position_teleop.py             # Joint-space teleoperation
+python torque_teleop.py               # Torque control demo
+python velocity_teleop.py             # Velocity control demo
 ```
 
----
-
-## **3. IRIS Real Robot Control**
-
-Joint-space impedance control with gravity compensation runs on the host PC.
-Motors communicate over **RS-485 at 1 kHz**, enabling low-latency multi-joint closed-loop control.
-
-### **Demo scripts**
-
-```bash
-python teach_and_repeat.py
-python calibration.py          # Save home pose calibration
-python repeatability_test.py
-```
-
-### **Execute planned trajectories**
-
-```bash
-python position_tracking.py
-```
+<p align="center">
+  <img src="docs/media/demo_motor_test.gif" width="60%">
+</p>
 
 ---
 
-## **4. ROS Interface and Real–Sim Synchronization**
+## 3️⃣ MuJoCo Simulation
 
-ROS provides:
+A physics-accurate **MuJoCo digital twin** is provided for:
 
-* Hardware state publishing
-* Command streaming
-* Teleoperation
-* Rosbag data recording
+* Kinematic verification
+* Classical motion planning (RRT*, potential fields)
+* Trajectory preview
+* Real–sim synchronization
+
+### ⚙️ Setup
+
+```bash
+cd mujoco_sim
+pip install -r requirements.txt
+```
+
+### ▶️ Run Simulation Demos
+
+```bash
+python cinema_line_tracking.py
+python circle_path_tracking.py
+python line_path_tracking.py
+```
+
+<p align="center">
+  <img src="docs/media/mujoco_path_tracking.gif" width="70%">
+</p>
+
+### ▶️ Interactive Teleoperation
+
+```bash
+python teleop_ik.py     # Cartesian IK teleoperation
+python teleop_fk.py     # Joint-space teleoperation
+```
+
+<p align="center">
+  <img src="docs/media/mujoco_teleop.gif" width="70%">
+</p>
+
+---
+
+## 4️⃣ ROS Interface and Rosbag Collection
+
+ROS provides synchronized real-time streaming of:
+
+* Robot joint states and commands
+* RGB-D camera frames (Intel RealSense)
+* TF transforms and timestamps
 * MuJoCo real–sim mirroring
 
-### **Build ROS workspace**
+### ⚙️ Build ROS Workspace
 
 ```bash
 cd meng_ws
@@ -137,55 +156,33 @@ catkin_make
 source devel/setup.bash
 ```
 
-### **Launch hardware interface**
+### ▶️ Launch Hardware Interface
 
 ```bash
 rosrun unitree_arm_ros unitree_hw_node.py
 ```
 
-### **Keyboard joint teleoperation**
+### ▶️ Keyboard Joint Teleoperation
 
 ```bash
 rosrun unitree_arm_ros keyboard_joint_teleop.py
 ```
 
-### **MuJoCo IK teleoperation**
-
-```bash
-rosrun unitree_arm_ros keyboard_ik_teleop.py
-```
-
-### **MuJoCo visualization of real robot**
+### ▶️ MuJoCo Visualization of Real Robot
 
 ```bash
 rosrun unitree_arm_ros mujoco_visualizer.py
 ```
 
----
+<p align="center">
+  <img src="docs/media/ros_mujoco_sync.gif" width="70%">
+</p>
 
-## **5. Rosbag Data Collection**
-
-All real-robot demonstrations are recorded using ROS bags, including:
-
-* RGB images
-* Depth images
-* Camera calibration
-* Joint feedback
-* Joint command targets
-* TF transforms
-* Timestamps
-
-### **Record a demonstration**
+### ▶️ Record Rosbag Demonstrations
 
 ```bash
 cd bag_reader/scripts
 bash iris_rosbag_record.sh -O demo_name
-```
-
-This produces:
-
-```
-rosbag_data/demo_name_YYYYMMDD_HHMMSS.bag
 ```
 
 Recorded topics include:
@@ -194,101 +191,118 @@ Recorded topics include:
 /arm/command
 /joint_states
 /tf
-/tf_static
 /camera/color/image_raw
-/camera/color/camera_info
 /camera/depth/image_rect_raw
-/camera/depth/camera_info
 ```
 
-Stop recording with **Ctrl+C**.
+<p align="center">
+  <img src="docs/media/rosbag_record.gif" width="70%">
+</p>
 
 ---
 
-## **6. Rosbag Dataset Processing**
+## 5️⃣ Data Processing
 
-Recorded rosbags are converted into structured training datasets.
+Recorded rosbags are converted into structured datasets for imitation learning.
 
-### **Process a bag**
+### ▶️ Process a Rosbag
 
 ```bash
 cd bag_reader/scripts
 bash process_bag.sh --bag demo_name_YYYYMMDD_HHMMSS
 ```
 
-### **Outputs**
+### 📦 Output Dataset Structure
 
 ```
-raw_data/demo_name_YYYYMMDD_HHMMSS/
- ├── rgb/                 # RGB frames (timestamp-named PNGs)
- ├── depth/               # Depth frames (16UC1 PNGs)
- ├── joint_states.csv     # Robot joint feedback
- ├── arm_command.csv      # Commanded joint targets
- ├── camera_info_color.json
- └── camera_info_depth.json
+processed_data/<bag_prefix>_episode_0001/
+ ├── rgb/                 # RGB frames
+ ├── depth/               # Depth frames
+ └── robot/joint_states.csv
 ```
 
-These datasets are directly consumed by the imitation learning pipeline.
+These episodes are directly consumed by the IL training pipeline.
 
 ---
 
-## **7. Imitation Learning Training**
+## 6️⃣ Imitation Learning
 
-Visuomotor imitation learning models are trained in:
+Visuomotor imitation learning is implemented using an **Action-Conditioned Transformer (ACT)** that predicts future joint trajectories conditioned on RGB observations and robot state.
 
-```
-il_training/
-```
+<p align="center">
+  <img src="docs/media/act_architecture.png" width="85%">
+</p>
 
-### **Prepare dataset splits**
-
-```bash
-cd il_training
-python train_data_split.py
-```
-
-### **Train RGB policy**
+### ▶️ Train Policy
 
 ```bash
-python train_rgb_transformer.py
+python il_training/train_act.py \
+  --data_root /media/jerry/SSD/processed_data \
+  --bag_prefix 0.3_0.3_0.3_goal_20260111_181031 \
+  --name iris_goal_exp1 \
+  --epochs 200
 ```
 
-### **CNN baselines**
+### 📈 Outputs
 
-```bash
-python train_rgb.py
-python train_depth_cnn.py
+```
+models/best_act_iris_goal_exp1.pth
+plots/loss_iris_goal_exp1.png
+plots/loss_iris_goal_exp1.csv
 ```
 
-Models predict short-horizon joint trajectories conditioned on RGB observations and robot state.
+<p align="center">
+  <img src="docs/media/loss_curve.png" width="60%">
+</p>
 
 ---
 
-## **8. Sim-to-Real and Real-to-Sim**
+## 7️⃣ Sim-to-Real Deployment
 
 Planned or learned trajectories can be:
 
 * Previewed in MuJoCo
-* Executed on hardware
-* Logged on ROS
+* Executed on the real robot
+* Logged via ROS
 * Replayed in simulation
 
-Nodes in `sim2real/` and ROS bridge tools provide synchronized streaming for reproducible experiments.
+### ▶️ Execute Learned Policy
+
+```bash
+python mpr_control/run_policy.py --model models/best_act_iris_goal_exp1.pth
+```
+
+<p align="center">
+  <img src="docs/media/real_robot.gif" width="75%">
+</p>
 
 ---
 
-## **Requirements**
+## 💻 System Requirements
 
-* Python ≥ 3.8
+* Python ≥ 3.9
 * MuJoCo ≥ 2.3
 * ROS Noetic
 * Intel RealSense RGB-D camera
 * Unitree GO-M8010-6 actuators
-* NVIDIA GPU recommended for training
+* NVIDIA GPU recommended for IL training
 
 ---
 
-## **Contact**
+## 📄 Citation
+
+```
+@article{cheng2026iris,
+  title={IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control},
+  author={Cheng, Qilong and others},
+  journal={Under Review},
+  year={2026}
+}
+```
+
+---
+
+## 📧 Contact
 
 **Qilong (Jerry) Cheng**
 NYU Robotics
