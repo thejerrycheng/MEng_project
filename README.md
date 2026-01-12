@@ -17,6 +17,10 @@
   <a href="#7-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
 </p>
 
+<p align="center">
+  <img src="images/overview.png" width="100%">
+</p>
+
 ---
 
 ## 🗂 Repository Structure
@@ -93,7 +97,7 @@ python velocity_teleop.py             # Velocity control demo
 ```
 
 <p align="center">
-  <img src="docs/media/demo_motor_test.gif" width="60%">
+  <img src="videos/motor.gif" width="30%">
 </p>
 
 ---
@@ -123,7 +127,10 @@ python line_path_tracking.py
 ```
 
 <p align="center">
-  <img src="docs/media/mujoco_path_tracking.gif" width="70%">
+  <img src="videos/apf.gif" width="50%">
+</p>
+<p align="center">
+  <img src="videos/rrt.gif" width="50%">
 </p>
 
 ### ▶️ Interactive Teleoperation
@@ -134,7 +141,7 @@ python teleop_fk.py     # Joint-space teleoperation
 ```
 
 <p align="center">
-  <img src="docs/media/mujoco_teleop.gif" width="70%">
+  <img src="videos/apf.gif" width="70%">
 </p>
 
 ---
@@ -175,7 +182,11 @@ rosrun unitree_arm_ros mujoco_visualizer.py
 ```
 
 <p align="center">
-  <img src="docs/media/ros_mujoco_sync.gif" width="70%">
+  <img src="docs/media/ros_mujoco_sync.gif" width="50%">
+</p>
+
+<p align="center">
+  <img src="docs/media/" width="50%">
 </p>
 
 ### ▶️ Record Rosbag Demonstrations
@@ -196,7 +207,10 @@ Recorded topics include:
 ```
 
 <p align="center">
-  <img src="docs/media/rosbag_record.gif" width="70%">
+  <img src="videos/data_collection_iris-ezgif.com-video-to-gif-converter.gif" width="66%">
+</p>
+<p align="center">
+  <img src="videos/semi_automous_data_collection.gif" width="50%">
 </p>
 
 ---
