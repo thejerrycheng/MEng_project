@@ -1,15 +1,48 @@
 # ========================================
-# Large datasets (new folder structure)
+# Python / build artifacts
+# ========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+.env
+.venv/
+venv/
+
+# ========================================
+# OS junk
+# ========================================
+.DS_Store
+Thumbs.db
+
+# ========================================
+# ROS build artifacts
+# ========================================
+meng_ws/build/
+meng_ws/devel/
+meng_ws/log/
+
+# ========================================
+# MuJoCo runtime cache
+# ========================================
+mujoco_sim/.mujoco/
+*.mjl
+
+# ========================================
+# Large datasets (global)
 # ========================================
 raw_data/
 rosbag_data/
 processed_data/
 
-# Also ignore any rosbag files anywhere
+# Ignore rosbag files anywhere
 *.bag
 
 # ========================================
-# Generated IL datasets inside workspace
+# IL-generated datasets inside workspace
 # ========================================
 meng_ws/src/il_training/saved_clips/
 meng_ws/src/il_training/processed_dataset/
@@ -24,7 +57,24 @@ meng_ws/src/bag_reader/scripts/robot_data/
 meng_ws/src/bag_reader/scripts/saved_clips/
 
 # ========================================
-# Ignore generated images in data folders
+# Training outputs / models
+# ========================================
+models/
+plots/
+*.pt
+*.pth
+*.onnx
+
+# ========================================
+# Media / large visual assets
+# ========================================
+images/
+videos/
+docs/media/*.gif
+docs/media/*.mp4
+
+# ========================================
+# Ignore generated images in datasets
 # ========================================
 *.png
 *.jpg
@@ -36,42 +86,14 @@ meng_ws/src/bag_reader/scripts/saved_clips/
 !paper/**/*.jpeg
 
 # ========================================
-# Keep JSON config & calibration files
+# Keep JSON calibration / config files
 # ========================================
 !*.json
 
 # ========================================
-# Trained models / ML artifacts
+# Logs / temp
 # ========================================
-*.pt
-*.pth
-*.ckpt
-*.onnx
-*.npz
-
-# ========================================
-# ROS build artifacts
-# ========================================
-build/
-devel/
-install/
-log/
-
-# ========================================
-# Python cache
-# ========================================
-__pycache__/
-*.pyc
-
-# ========================================
-# Secrets
-# ========================================
-github_password.txt
-
-# ========================================
-# Editor / OS junk
-# ========================================
-.DS_Store
-.vscode/
-.idea/
-
+*.log
+*.tmp
+*.swp
+*.bak
