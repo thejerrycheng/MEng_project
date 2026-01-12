@@ -2,138 +2,190 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import time
+import yaml
+
 import mujoco
-
-# ------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------
-CURR_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(CURR_DIR)
-XML_PATH = os.path.join(PROJECT_ROOT, "mujoco_sim", "assets", "iris.xml")
-
-NUM_JOINTS = 6
+import mujoco.viewer
 
 
-# ------------------------------------------------------------
-# IRIS Forward Kinematics (your verified analytical FK)
-# ------------------------------------------------------------
-class IRISKinematics:
-    def __init__(self):
-        self.link_configs = [
-            {'pos': [0, 0, 0.2487],         'euler': [0, 0, 0],    'axis': [0, 0, 1]}, 
-            {'pos': [0.0218, 0, 0.059],     'euler': [0, 90, 180], 'axis': [0, 0, 1]}, 
-            {'pos': [0.299774, 0, -0.0218], 'euler': [0, 0, 0],    'axis': [0, 0, 1]}, 
-            {'pos': [0.02, 0, 0],           'euler': [0, 90, 0],   'axis': [0, 0, 1]}, 
-            {'pos': [0, 0, 0.315],          'euler': [0, -90, 0],  'axis': [0, 0, 1]}, 
-            {'pos': [0.042824, 0, 0],       'euler': [0, 90, 0],   'axis': [0, 0, 1]}  
-        ]
+# ----------------------------
+# Args
+# ----------------------------
+parser = argparse.ArgumentParser(
+    description="Visualize human demonstration trajectories in MuJoCo (auto-play episodes)"
+)
+parser.add_argument("--data_root", type=str, required=True,
+                    help="Path to processed_data directory")
+parser.add_argument("--bag_prefix", type=str, required=True,
+                    help="Episode prefix to visualize")
+parser.add_argument("--xml_path", type=str, default="mujoco_sim/assets/iris.xml",
+                    help="Path to IRIS MuJoCo XML model")
+parser.add_argument("--calib_yaml", type=str,
+                    default="meng_ws/src/unitree_arm_ros/config/calibration.yaml",
+                    help="Path to calibration.yaml")
+parser.add_argument("--max_eps", type=int, default=5)
+parser.add_argument("--fps", type=int, default=30)
+parser.add_argument("--pause_between", type=float, default=1.0,
+                    help="Seconds to pause between episodes")
 
-    def get_local_transform(self, config, q_rad):
-        T = np.eye(4)
-        T[:3, 3] = config['pos']
-
-        # fixed body rotation
-        R_fixed = np.eye(3)
-        if any(config['euler']):
-            quat_e = np.zeros(4)
-            mujoco.mju_euler2Quat(quat_e, np.deg2rad(config['euler']), 'xyz')
-            Rm = np.zeros(9)
-            mujoco.mju_quat2Mat(Rm, quat_e)
-            R_fixed = Rm.reshape(3, 3)
-
-        # joint rotation
-        quat_j = np.zeros(4)
-        mujoco.mju_axisAngle2Quat(quat_j, np.array(config['axis']), q_rad)
-        Rj = np.zeros(9)
-        mujoco.mju_quat2Mat(Rj, quat_j)
-        R_joint = Rj.reshape(3, 3)
-
-        T[:3, :3] = R_fixed @ R_joint
-        return T
-
-    def end_effector_position(self, q_deg):
-        q_rad = np.deg2rad(q_deg)
-        T_accum = np.eye(4)
-        for i in range(len(self.link_configs)):
-            T_local = self.get_local_transform(self.link_configs[i], q_rad[i])
-            T_accum = T_accum @ T_local
-        return T_accum[:3, 3].copy()
+args = parser.parse_args()
 
 
-# ------------------------------------------------------------
-# Load episodes
-# ------------------------------------------------------------
-def list_episode_dirs(data_root, prefix):
-    return sorted([
-        os.path.join(data_root, d)
-        for d in os.listdir(data_root)
-        if d.startswith(prefix + "_episode_")
-    ])
+# ----------------------------
+# Load calibration offsets
+# ----------------------------
+def load_calibration_offsets(yaml_path):
+    if not os.path.isfile(yaml_path):
+        raise FileNotFoundError(f"Calibration file not found: {yaml_path}")
+
+    with open(yaml_path, "r") as f:
+        cfg = yaml.safe_load(f)
+
+    offs = cfg["joint_offsets"]
+    offsets = np.array([
+        offs["joint_1"],
+        offs["joint_2"],
+        offs["joint_3"],
+        offs["joint_4"],
+        offs["joint_5"],
+        offs["joint_6"],
+    ], dtype=np.float32)
+
+    print("Loaded joint calibration offsets (rad):")
+    print(offsets)
+    return offsets
 
 
-def load_joint_csv(ep_dir):
+# ----------------------------
+# Episode discovery
+# ----------------------------
+def list_episode_dirs(data_root, bag_prefix):
+    eps = []
+    for name in sorted(os.listdir(data_root)):
+        if name.startswith(bag_prefix + "_episode_"):
+            ep = os.path.join(data_root, name)
+            if os.path.isdir(ep):
+                eps.append(ep)
+    return eps
+
+
+def load_episode_joint_csv(ep_dir):
     csv_path = os.path.join(ep_dir, "robot", "joint_states.csv")
+    if not os.path.isfile(csv_path):
+        return None
+
     df = pd.read_csv(csv_path)
     pos_cols = [c for c in df.columns if c.startswith("pos_")]
-    pos_cols = pos_cols[:NUM_JOINTS]
-    q = df[pos_cols].to_numpy()
-    return q
+    pos_cols = pos_cols[:6]
+
+    q_real = df[pos_cols].to_numpy(dtype=np.float32)  # (T,6)
+    return q_real
 
 
-# ------------------------------------------------------------
-# Visualization
-# ------------------------------------------------------------
-def visualize_episodes(data_root, bag_prefix, max_eps=20):
-    kin = IRISKinematics()
+# ----------------------------
+# Draw gray EE trace
+# ----------------------------
+def draw_gray_trace(viewer, points):
+    scn = viewer.user_scn
+    scn.ngeom = 0
 
-    ep_dirs = list_episode_dirs(data_root, bag_prefix)
-    if len(ep_dirs) == 0:
+    max_pts = min(len(points), 400)
+
+    for i in range(max_pts):
+        p = points[-max_pts + i]
+
+        mujoco.mjv_initGeom(
+            scn.geoms[i],
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.array([0.003, 0, 0]),
+            p,
+            np.eye(3).flatten(),
+            np.array([0.6, 0.6, 0.6, 0.8])  # gray
+        )
+        scn.ngeom += 1
+
+
+# ----------------------------
+# Main visualization loop
+# ----------------------------
+def visualize_all_episodes(model, data, episodes, q_offsets, fps, pause_between):
+    dt = 1.0 / fps
+
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        print("\nMuJoCo window opened — playing episodes sequentially.")
+        print("Close the window only when finished.\n")
+
+        for ep_idx, ep_dir in enumerate(episodes):
+            print(f"▶ Episode {ep_idx+1}/{len(episodes)}: {os.path.basename(ep_dir)}")
+
+            q_real = load_episode_joint_csv(ep_dir)
+            if q_real is None:
+                print("  Skipped (no joint_states.csv)")
+                continue
+
+            ee_trace = []
+
+            for t in range(len(q_real)):
+                if not viewer.is_running():
+                    return
+
+                # Apply calibration
+                q_mj = q_real[t] - q_offsets
+                data.qpos[:6] = q_mj
+                mujoco.mj_forward(model, data)
+
+                # Record EE position
+                ee_pos = data.body("wrist2").xpos.copy()
+                ee_trace.append(ee_pos)
+
+                draw_gray_trace(viewer, ee_trace)
+
+                viewer.sync()
+                time.sleep(dt)
+
+            # Small pause before next episode
+            pause_t0 = time.time()
+            while time.time() - pause_t0 < pause_between:
+                if not viewer.is_running():
+                    return
+                viewer.sync()
+                time.sleep(0.01)
+
+        print("\nAll episodes finished. Close window to exit.")
+        while viewer.is_running():
+            viewer.sync()
+            time.sleep(0.01)
+
+
+# ----------------------------
+# Main
+# ----------------------------
+def main():
+    if not os.path.isfile(args.xml_path):
+        raise FileNotFoundError(f"MuJoCo XML not found: {args.xml_path}")
+
+    q_offsets = load_calibration_offsets(args.calib_yaml)
+
+    model = mujoco.MjModel.from_xml_path(args.xml_path)
+    data = mujoco.MjData(model)
+
+    episode_dirs = list_episode_dirs(args.data_root, args.bag_prefix)
+    if len(episode_dirs) == 0:
         raise RuntimeError("No episodes found")
 
-    print(f"Found {len(ep_dirs)} episodes")
+    episode_dirs = episode_dirs[:args.max_eps]
 
-    fig = plt.figure(figsize=(7,7))
-    ax = fig.add_subplot(111, projection='3d')
+    print(f"\nFound {len(episode_dirs)} episodes to play")
 
-    colors = plt.cm.viridis(np.linspace(0,1,min(len(ep_dirs), max_eps)))
-
-    for idx, ep in enumerate(ep_dirs[:max_eps]):
-        q = load_joint_csv(ep)
-        ee_traj = np.zeros((q.shape[0],3))
-
-        for t in range(q.shape[0]):
-            ee_traj[t] = kin.end_effector_position(q[t])
-
-        ax.plot(
-            ee_traj[:,0],
-            ee_traj[:,1],
-            ee_traj[:,2],
-            color=colors[idx],
-            linewidth=1.5,
-            alpha=0.9
-        )
-
-    ax.set_xlabel("X (m)")
-    ax.set_ylabel("Y (m)")
-    ax.set_zlabel("Z (m)")
-    ax.set_title(f"Human Demonstration End-Effector Trajectories\n{bag_prefix}")
-
-    ax.view_init(elev=25, azim=45)
-    plt.tight_layout()
-    plt.show()
+    visualize_all_episodes(
+        model, data,
+        episode_dirs,
+        q_offsets,
+        fps=args.fps,
+        pause_between=args.pause_between
+    )
 
 
-# ------------------------------------------------------------
-# Main
-# ------------------------------------------------------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data_root", required=True,
-                        help="Path to processed_data directory")
-    parser.add_argument("--bag_prefix", required=True,
-                        help="Episode prefix, e.g. 0.3_0.3_0.3_goal_20260111_181031")
-    parser.add_argument("--max_eps", type=int, default=20)
-    args = parser.parse_args()
-
-    visualize_episodes(args.data_root, args.bag_prefix, args.max_eps)
+    main()
