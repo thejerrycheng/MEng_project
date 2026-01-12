@@ -57,6 +57,20 @@ meng_ws/src/bag_reader/scripts/robot_data/
 meng_ws/src/bag_reader/scripts/saved_clips/
 
 # ========================================
+# Ignore generated images in dataset folders
+# ========================================
+processed_data/**/*.png
+processed_data/**/*.jpg
+processed_data/**/*.jpeg
+
+raw_data/**/*.png
+raw_data/**/*.jpg
+raw_data/**/*.jpeg
+
+meng_ws/src/bag_reader/scripts/rgb_data/**/*.png
+meng_ws/src/bag_reader/scripts/depth_data/**/*.png
+
+# ========================================
 # Training outputs / models
 # ========================================
 models/
@@ -66,24 +80,22 @@ plots/
 *.onnx
 
 # ========================================
-# Media / large visual assets
+# Media folders for large raw videos
 # ========================================
-images/
 videos/
-docs/media/*.gif
-docs/media/*.mp4
 
 # ========================================
-# Ignore generated images in datasets
+# Allow documentation and paper images
 # ========================================
-*.png
-*.jpg
-*.jpeg
+!docs/media/**/*.png
+!docs/media/**/*.jpg
+!docs/media/**/*.gif
+!docs/media/**/*.mp4
 
-# But keep paper figures
 !paper/**/*.png
 !paper/**/*.jpg
 !paper/**/*.jpeg
+!paper/**/*.pdf
 
 # ========================================
 # Keep JSON calibration / config files
