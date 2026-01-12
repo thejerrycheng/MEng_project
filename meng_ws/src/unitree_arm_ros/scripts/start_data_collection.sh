@@ -94,6 +94,3 @@ rosbag record \
   /camera/depth/image_rect_raw \
   /camera/depth/camera_info \
   /camera/extrinsics/depth_to_color \
-  /camera/depth/color/points \
-  /rosout \
-  /rosout_agg
