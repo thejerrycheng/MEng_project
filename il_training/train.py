@@ -1,233 +1,175 @@
-#!/usr/bin/env python3
-import os, math, yaml, torch
-import torch.nn as nn
-import torch.optim as optim
+import os
+import argparse
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import torch
+import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from datasets.iris_dataset import list_episode_dirs, load_episode, EpisodeWindowDataset
+# Import Modules
 from models.transformer_model import ACT_RGB
-from losses.loss import act_loss, batch_fk
+from datasets.iris_dataset import EpisodeWindowDataset
+from losses.loss import ACTLoss
 
-
-# -------------------------------------------------
-# Load Config
-# -------------------------------------------------
-cfg = yaml.safe_load(open("configs/train.yaml"))
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", device)
-
-os.makedirs("outputs/models", exist_ok=True)
-os.makedirs("outputs/plots", exist_ok=True)
-
-
-# -------------------------------------------------
-# Load Episodes from SSD
-# -------------------------------------------------
-dirs = list_episode_dirs(cfg["data"]["data_root"], cfg["data"]["bag_prefix"])
-episodes = [load_episode(d) for d in dirs]
-episodes = [e for e in episodes if e is not None]
-
-if len(episodes) == 0:
-    raise RuntimeError("No episodes found!")
-
-print(f"Loaded {len(episodes)} episodes")
-
-# -------------------------------------------------
-# Split by Episode (no leakage)
-# -------------------------------------------------
-N = len(episodes)
-n_train = int(0.8 * N)
-n_val   = int(0.1 * N)
-
-train_eps = episodes[:n_train]
-val_eps   = episodes[n_train:n_train+n_val]
-test_eps  = episodes[n_train+n_val:]
-
-print(f"Split -> Train:{len(train_eps)}  Val:{len(val_eps)}  Test:{len(test_eps)}")
-
-# -------------------------------------------------
-# Create Datasets
-# -------------------------------------------------
-train_ds = EpisodeWindowDataset(train_eps, cfg["model"]["seq_len"], cfg["model"]["future_steps"])
-val_ds   = EpisodeWindowDataset(val_eps,   cfg["model"]["seq_len"], cfg["model"]["future_steps"])
-test_ds  = EpisodeWindowDataset(test_eps,  cfg["model"]["seq_len"], cfg["model"]["future_steps"])
-
-train_loader = DataLoader(
-    train_ds,
-    batch_size=cfg["train"]["batch_size"],
-    shuffle=True,
-    num_workers=cfg["train"]["num_workers"],
-    pin_memory=True
+# ---------------------
+# Logging Setup
+# ---------------------
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    handlers=[logging.StreamHandler()]
 )
 
-val_loader = DataLoader(
-    val_ds,
-    batch_size=cfg["train"]["batch_size"],
-    shuffle=False,
-    num_workers=cfg["train"]["num_workers"],
-    pin_memory=True
-)
+def save_plots(history, plots_dir, name):
+    plt.figure(figsize=(10, 5))
+    plt.plot(history['train_loss'], label='Train Loss')
+    plt.plot(history['val_loss'], label='Val Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Training Curve: {name}')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(plots_dir, f"loss_{name}.png"))
+    plt.close()
 
-test_loader = DataLoader(
-    test_ds,
-    batch_size=cfg["train"]["batch_size"],
-    shuffle=False,
-    num_workers=cfg["train"]["num_workers"],
-    pin_memory=True
-)
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, default="processed_data", help="Dir containing .pkl files")
+    parser.add_argument("--name", type=str, required=True, help="Experiment Name")
+    
+    # Hyperparams
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--num_workers", type=int, default=4)
+    
+    # Model Params
+    parser.add_argument("--seq_len", type=int, default=8)
+    parser.add_argument("--future_steps", type=int, default=15)
+    parser.add_argument("--d_model", type=int, default=256)
+    parser.add_argument("--nhead", type=int, default=8)
+    
+    args = parser.parse_args()
 
-print(f"Windows -> Train:{len(train_ds)}  Val:{len(val_ds)}  Test:{len(test_ds)}")
+    # Directories
+    models_dir = "checkpoints"
+    plots_dir = "plots"
+    os.makedirs(models_dir, exist_ok=True)
+    os.makedirs(plots_dir, exist_ok=True)
 
+    # Device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device: {device}")
 
-# -------------------------------------------------
-# Build Model
-# -------------------------------------------------
-model = ACT_RGB(**cfg["model"]).to(device)
+    # ---------------------
+    # Data Loading
+    # ---------------------
+    logging.info("Loading Datasets...")
+    train_pkl = os.path.join(args.data_dir, "train_episodes.pkl")
+    val_pkl = os.path.join(args.data_dir, "val_episodes.pkl")
 
-optimizer = optim.AdamW(
-    model.parameters(),
-    lr=cfg["train"]["lr"],
-    weight_decay=cfg["train"]["weight_decay"],
-    betas=(0.9, 0.95)
-)
+    train_ds = EpisodeWindowDataset(train_pkl, args.seq_len, args.future_steps)
+    val_ds = EpisodeWindowDataset(val_pkl, args.seq_len, args.future_steps)
 
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, 
+                              num_workers=args.num_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, 
+                            num_workers=args.num_workers, pin_memory=True)
 
-# -------------------------------------------------
-# Warmup + Cosine Scheduler
-# -------------------------------------------------
-total_steps = cfg["train"]["epochs"] * len(train_loader)
-warmup_steps = cfg["scheduler"]["warmup_steps"]
-min_lr = cfg["scheduler"]["min_lr"]
-base_lr = cfg["train"]["lr"]
+    logging.info(f"Train samples: {len(train_ds)} | Val samples: {len(val_ds)}")
 
-def lr_lambda(step):
-    if step < warmup_steps:
-        return step / warmup_steps
-    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-    cosine = 0.5 * (1 + math.cos(math.pi * progress))
-    return max(min_lr / base_lr, cosine)
+    # ---------------------
+    # Model & Optimization
+    # ---------------------
+    model = ACT_RGB(
+        seq_len=args.seq_len,
+        future_steps=args.future_steps,
+        d_model=args.d_model,
+        nhead=args.nhead
+    ).to(device)
 
-scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    criterion = ACTLoss(lambda_cont=0.05, lambda_goal=0.05)
 
+    # ---------------------
+    # Training Loop
+    # ---------------------
+    history = {'train_loss': [], 'val_loss': []}
+    best_val_loss = float('inf')
 
-# -------------------------------------------------
-# One Epoch Function
-# -------------------------------------------------
-def run_epoch(loader, train=True):
-    model.train(train)
-    total_loss = 0
+    for epoch in range(args.epochs):
+        # --- Train ---
+        model.train()
+        train_loss_acc = 0
+        
+        for batch_idx, (rgb, joints, goal_xyz, fut_delta, goal_joint) in enumerate(train_loader):
+            rgb = rgb.to(device)              # (B, S, 3, 128, 128)
+            joints = joints.to(device)        # (B, S, 6)
+            goal_xyz = goal_xyz.to(device)    # (B, 3)
+            fut_delta = fut_delta.to(device)  # (B, F, 6)
+            goal_joint = goal_joint.to(device)# (B, 6)
 
-    for rgb, joint, goal_xyz, future in loader:
-        rgb = rgb.to(device, non_blocking=True)
-        joint = joint.to(device, non_blocking=True)
-        goal_xyz = goal_xyz.to(device, non_blocking=True)
-        future = future.to(device, non_blocking=True)
-
-        pred = model(rgb, joint, goal_xyz)
-
-        loss = act_loss(
-            pred, future, joint, goal_xyz,
-            cfg["loss"]["lambda_cont"],
-            cfg["loss"]["lambda_goal"]
-        )
-
-        if train:
-            optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
+            
+            # Forward
+            pred_delta = model(rgb, joints, goal_xyz)
+            
+            # Loss
+            curr_joint_state = joints[:, -1, :] # Last known joint config
+            loss, _ = criterion(pred_delta, fut_delta, curr_joint_state, goal_joint)
+            
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), cfg["train"]["grad_clip"])
             optimizer.step()
-            scheduler.step()
+            
+            train_loss_acc += loss.item()
 
-        total_loss += loss.item()
+        avg_train = train_loss_acc / len(train_loader)
 
-    return total_loss / len(loader)
+        # --- Validate ---
+        model.eval()
+        val_loss_acc = 0
+        with torch.no_grad():
+            for rgb, joints, goal_xyz, fut_delta, goal_joint in val_loader:
+                rgb = rgb.to(device)
+                joints = joints.to(device)
+                goal_xyz = goal_xyz.to(device)
+                fut_delta = fut_delta.to(device)
+                goal_joint = goal_joint.to(device)
 
+                pred_delta = model(rgb, joints, goal_xyz)
+                curr_joint_state = joints[:, -1, :]
+                loss, _ = criterion(pred_delta, fut_delta, curr_joint_state, goal_joint)
+                
+                val_loss_acc += loss.item()
 
-# -------------------------------------------------
-# Training Loop
-# -------------------------------------------------
-best_val = float("inf")
-train_curve, val_curve = [], []
-bad_epochs = 0
+        avg_val = val_loss_acc / len(val_loader)
 
-print("\n===== START TRAINING =====")
+        # --- Log & Save ---
+        history['train_loss'].append(avg_train)
+        history['val_loss'].append(avg_val)
 
-for epoch in range(cfg["train"]["epochs"]):
-    train_loss = run_epoch(train_loader, train=True)
-    val_loss   = run_epoch(val_loader, train=False)
+        logging.info(f"Epoch {epoch+1}/{args.epochs} | Train: {avg_train:.5f} | Val: {avg_val:.5f}")
 
-    train_curve.append(train_loss)
-    val_curve.append(val_loss)
+        if avg_val < best_val_loss:
+            best_val_loss = avg_val
+            torch.save(model.state_dict(), os.path.join(models_dir, f"best_{args.name}.pth"))
+            logging.info("  -> Saved Best Model")
 
-    print(f"Epoch {epoch+1:03d} | Train {train_loss:.6f} | Val {val_loss:.6f}")
+    # Save Final
+    torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.name}.pth"))
+    
+    # Save CSV
+    df = pd.DataFrame(history)
+    df.to_csv(os.path.join(plots_dir, f"history_{args.name}.csv"), index=False)
+    
+    # Plot
+    save_plots(history, plots_dir, args.name)
+    logging.info("Training Complete.")
 
-    if val_loss < best_val:
-        best_val = val_loss
-        torch.save(model.state_dict(), "outputs/models/best_model.pth")
-        bad_epochs = 0
-        print("   ✅ Saved new best model")
-    else:
-        bad_epochs += 1
-
-    if bad_epochs >= cfg["train"]["patience"]:
-        print("Early stopping triggered.")
-        break
-
-
-# -------------------------------------------------
-# Save final model
-# -------------------------------------------------
-torch.save(model.state_dict(), "outputs/models/final_model.pth")
-print("Saved final model.")
-
-
-# -------------------------------------------------
-# Plot Loss Curves
-# -------------------------------------------------
-plt.figure()
-plt.plot(train_curve, label="Train")
-plt.plot(val_curve, label="Val")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("outputs/plots/loss_curve.png", dpi=200)
-print("Saved loss plot.")
-
-
-# -------------------------------------------------
-# Test Evaluation (FK Goal Error)
-# -------------------------------------------------
-print("\n===== RUNNING TEST EVALUATION =====")
-
-model.load_state_dict(torch.load("outputs/models/best_model.pth"))
-model.eval()
-
-cart_errors = []
-
-with torch.no_grad():
-    for rgb, joint, goal_xyz, future in test_loader:
-        rgb = rgb.to(device)
-        joint = joint.to(device)
-        goal_xyz = goal_xyz.to(device)
-
-        pred = model(rgb, joint, goal_xyz)
-
-        q_last = joint[:, -1, :]
-        q_pred_last = q_last + pred[:, -1, :]
-        xyz_pred = batch_fk(q_pred_last)
-
-        err = torch.norm(xyz_pred - goal_xyz, dim=1)
-        cart_errors.append(err.cpu())
-
-cart_errors = torch.cat(cart_errors).numpy()
-
-print(f"\nTest Cartesian Goal Error:")
-print(f"Mean: {cart_errors.mean():.4f} m")
-print(f"Std : {cart_errors.std():.4f} m")
-
-print("\n===== DONE =====")
+if __name__ == "__main__":
+    main()

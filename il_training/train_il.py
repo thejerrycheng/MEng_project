@@ -54,6 +54,10 @@ parser.add_argument("--dec_layers", type=int, default=4)
 parser.add_argument("--ff_dim", type=int, default=512)
 parser.add_argument("--dropout", type=float, default=0.1)
 
+parser.add_argument("--name", type=str, required=True,
+                    help="Experiment name for saving models and plots")
+
+
 args = parser.parse_args()
 NUM_JOINTS = 6
 
@@ -318,15 +322,61 @@ model = ACT_RGB(args.seq_len, args.future_steps,
 optimizer = optim.AdamW(model.parameters(), lr=args.lr)
 
 best_val = 1e9
+
+train_losses = []
+val_losses   = []
+
 for epoch in range(args.epochs):
-    tr = run_epoch(model, train_loader, device, optimizer, args.lambda_cont, args.lambda_goal)
-    va = run_epoch(model, val_loader, device, None, args.lambda_cont, args.lambda_goal)
+    tr = run_epoch(model, train_loader, device, optimizer,
+                   args.lambda_cont, args.lambda_goal)
+    va = run_epoch(model, val_loader, device, None,
+                   args.lambda_cont, args.lambda_goal)
+
+    train_losses.append(tr)
+    val_losses.append(va)
 
     logging.info(f"Epoch {epoch+1:03d} | Train {tr:.6f} | Val {va:.6f}")
 
     if va < best_val:
         best_val = va
-        torch.save(model.state_dict(), f"models/best_act_{args.bag_prefix}.pth")
+        torch.save(model.state_dict(),
+                   os.path.join(models_dir, f"best_act_{args.name}.pth"))
 
-torch.save(model.state_dict(), f"models/final_act_{args.bag_prefix}.pth")
+# Save final model
+torch.save(model.state_dict(),
+           os.path.join(models_dir, f"final_act_{args.name}.pth"))
+
 logging.info("Training complete.")
+
+# ---------------------
+# Save Loss CSV
+# ---------------------
+loss_csv_path = os.path.join(plots_dir, f"loss_{args.name}.csv")
+
+df_loss = pd.DataFrame({
+    "epoch": np.arange(1, args.epochs + 1),
+    "train_loss": train_losses,
+    "val_loss": val_losses
+})
+df_loss.to_csv(loss_csv_path, index=False)
+
+logging.info(f"Saved loss CSV to {loss_csv_path}")
+
+# ---------------------
+# Plot Loss Curves
+# ---------------------
+plt.figure(figsize=(6,4))
+plt.plot(df_loss["epoch"], df_loss["train_loss"], label="Train")
+plt.plot(df_loss["epoch"], df_loss["val_loss"], label="Val")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("ACT Training Curve")
+plt.legend()
+plt.grid(True)
+
+plot_path = os.path.join(plots_dir, f"loss_{args.name}.png")
+plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+plt.close()
+
+logging.info(f"Saved loss plot to {plot_path}")
+

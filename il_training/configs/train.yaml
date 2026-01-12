@@ -15,16 +15,17 @@ model:
 train:
   batch_size: 32
   epochs: 80
-  lr: 3e-4
-  weight_decay: 1e-4
+  lr: 0.0003          # ← explicitly numeric
+  weight_decay: 0.0001
   grad_clip: 1.0
   num_workers: 6
   patience: 12
 
 scheduler:
   warmup_steps: 500
-  min_lr: 1e-5
+  min_lr: 0.00001     # ← numeric
 
 loss:
   lambda_cont: 1.0
   lambda_goal: 0.3
+

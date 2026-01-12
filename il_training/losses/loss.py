@@ -1,90 +1,35 @@
-import numpy as np
 import torch
 import torch.nn as nn
-import mujoco
 
-# -------------------------
-# IRIS Forward Kinematics
-# -------------------------
+class ACTLoss(nn.Module):
+    def __init__(self, lambda_cont=0.05, lambda_goal=0.2):
+        super().__init__()
+        self.lambda_cont = lambda_cont
+        self.lambda_goal = lambda_goal
+        self.mse = nn.MSELoss()
 
-class IRISKinematics:
-    def __init__(self):
-        self.link_configs = [
-            {'pos':[0,0,0.2487],        'euler':[0,0,0],     'axis':[0,0,1]},
-            {'pos':[0.0218,0,0.059],    'euler':[0,90,180],  'axis':[0,0,1]},
-            {'pos':[0.299774,0,-0.0218],'euler':[0,0,0],     'axis':[0,0,1]},
-            {'pos':[0.02,0,0],          'euler':[0,90,0],    'axis':[0,0,1]},
-            {'pos':[0,0,0.315],         'euler':[0,-90,0],   'axis':[0,0,1]},
-            {'pos':[0.042824,0,0],      'euler':[0,90,0],    'axis':[0,0,1]}
-        ]
+    def forward(self, pred_deltas, target_deltas, current_joints, target_goal_joints):
+        """
+        pred_deltas: (B, F, 6) - Model Output
+        target_deltas: (B, F, 6) - Ground Truth
+        current_joints: (B, 6) - Joint state at t=0 of prediction
+        target_goal_joints: (B, 6) - The final goal joint configuration
+        """
+        
+        # 1. Reconstruction Loss (Trajectory matching)
+        loss_mse = self.mse(pred_deltas, target_deltas)
 
-    def get_local_transform(self, cfg, q_rad):
-        T = np.eye(4)
-        T[:3,3] = cfg['pos']
+        # 2. Continuity Loss (Penalize jumping at step 0)
+        # We want the first action to be small or consistent
+        loss_cont = self.mse(pred_deltas[:, 0, :], torch.zeros_like(pred_deltas[:, 0, :]))
 
-        R_fixed = np.eye(3)
-        if any(cfg['euler']):
-            quat = np.zeros(4)
-            mujoco.mju_euler2Quat(quat, np.deg2rad(cfg['euler']), 'xyz')
-            mat = np.zeros(9)
-            mujoco.mju_quat2Mat(mat, quat)
-            R_fixed = mat.reshape(3,3)
+        # 3. Goal Loss (Did we end up at the right place?)
+        # Predict where the robot is at the final future step
+        # Note: We assume deltas are summed over the horizon or relative to current state.
+        # For simplicity in this implementation, we check the final step delta.
+        pred_final_pose = current_joints + pred_deltas[:, -1, :]
+        loss_goal = self.mse(pred_final_pose, target_goal_joints)
 
-        quat_j = np.zeros(4)
-        mujoco.mju_axisAngle2Quat(quat_j, np.array(cfg['axis']), q_rad)
-        mat_j = np.zeros(9)
-        mujoco.mju_quat2Mat(mat_j, quat_j)
-        R_joint = mat_j.reshape(3,3)
-
-        T[:3,:3] = R_fixed @ R_joint
-        return T
-
-    def forward(self, q_deg):
-        q_rad = np.deg2rad(q_deg)
-        T = np.eye(4)
-        for i in range(len(self.link_configs)):
-            T = T @ self.get_local_transform(self.link_configs[i], q_rad[i])
-        return T[:3,3]   # end-effector xyz
-
-
-# -------------------------
-# Loss Functions
-# -------------------------
-
-mse = nn.MSELoss()
-_fk = IRISKinematics()
-
-
-def batch_fk(q_batch_rad):
-    """
-    q_batch_rad: (B,6) torch tensor in radians
-    returns: (B,3) torch tensor of xyz
-    """
-    q_deg = torch.rad2deg(q_batch_rad).detach().cpu().numpy()
-    xyz = [_fk.forward(q) for q in q_deg]
-    return torch.tensor(xyz, device=q_batch_rad.device, dtype=torch.float32)
-
-
-def act_loss(pred_delta, future_delta, joint_seq, goal_xyz,
-             lambda_cont, lambda_goal):
-    """
-    pred_delta: (B,F,6) predicted Δq
-    future_delta: (B,F,6) GT Δq
-    joint_seq: (B,S,6) observed joints
-    goal_xyz: (B,3) Cartesian EE goal
-    """
-
-    # 1. Imitation loss on action chunk
-    loss_mse = mse(pred_delta, future_delta)
-
-    # 2. Continuity loss (first predicted Δq should be zero)
-    loss_cont = mse(pred_delta[:,0,:], torch.zeros_like(pred_delta[:,0,:]))
-
-    # 3. Goal-reaching loss in Cartesian space
-    q_last = joint_seq[:,-1,:]           # last observed absolute q
-    q_pred_last = q_last + pred_delta[:,-1,:]  # predicted final absolute q
-
-    xyz_pred = batch_fk(q_pred_last)     # FK
-    loss_goal = mse(xyz_pred, goal_xyz)
-
-    return loss_mse + lambda_cont*loss_cont + lambda_goal*loss_goal
+        total_loss = loss_mse + (self.lambda_cont * loss_cont) + (self.lambda_goal * loss_goal)
+        
+        return total_loss, {"mse": loss_mse, "cont": loss_cont, "goal": loss_goal}
