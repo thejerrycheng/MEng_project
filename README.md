@@ -45,14 +45,14 @@ The design emphasizes low cost, modularity, and high backdrivability for kinesth
 
 ### 🔩 3D Models and CAD
 
-* 📐 **Mechanical CAD (STEP + STL):**
+- 📐 **Mechanical CAD (STEP + STL):**
   👉 [https://github.com/thejerrycheng/IRIS-Hardware](https://github.com/thejerrycheng/IRIS-Hardware)
 
-* 🖨️ **Printable STL files:**
+- 🖨️ **Printable STL files:**
   👉 [https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL](https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL)
 
 <p align="center">
-  <img src="docs/media/iris_cad.png" width="70%">
+  <img src="images/render.png" width="70%">
 </p>
 
 ---
@@ -64,10 +64,10 @@ Motors communicate over **RS-485 at 1 kHz**, enabling synchronized multi-joint c
 
 ### 📘 Unitree SDK and Documentation
 
-* **Official Actuator Documentation:**
+- **Official Actuator Documentation:**
   [https://support.unitree.com/home/en/Actuator](https://support.unitree.com/home/en/Actuator)
 
-* **Unitree Actuator SDK Repository:**
+- **Unitree Actuator SDK Repository:**
   [https://github.com/unitreerobotics/unitree_actuator_sdk](https://github.com/unitreerobotics/unitree_actuator_sdk)
 
 Place the SDK at:
@@ -102,10 +102,10 @@ python velocity_teleop.py             # Velocity control demo
 
 A physics-accurate **MuJoCo digital twin** is provided for:
 
-* Kinematic verification
-* Classical motion planning (RRT*, potential fields)
-* Trajectory preview
-* Real–sim synchronization
+- Kinematic verification
+- Classical motion planning (RRT\*, potential fields)
+- Trajectory preview
+- Real–sim synchronization
 
 ### ⚙️ Setup
 
@@ -143,10 +143,10 @@ python teleop_fk.py     # Joint-space teleoperation
 
 ROS provides synchronized real-time streaming of:
 
-* Robot joint states and commands
-* RGB-D camera frames (Intel RealSense)
-* TF transforms and timestamps
-* MuJoCo real–sim mirroring
+- Robot joint states and commands
+- RGB-D camera frames (Intel RealSense)
+- TF transforms and timestamps
+- MuJoCo real–sim mirroring
 
 ### ⚙️ Build ROS Workspace
 
@@ -261,10 +261,10 @@ plots/loss_iris_goal_exp1.csv
 
 Planned or learned trajectories can be:
 
-* Previewed in MuJoCo
-* Executed on the real robot
-* Logged via ROS
-* Replayed in simulation
+- Previewed in MuJoCo
+- Executed on the real robot
+- Logged via ROS
+- Replayed in simulation
 
 ### ▶️ Execute Learned Policy
 
@@ -280,12 +280,12 @@ python mpr_control/run_policy.py --model models/best_act_iris_goal_exp1.pth
 
 ## 💻 System Requirements
 
-* Python ≥ 3.9
-* MuJoCo ≥ 2.3
-* ROS Noetic
-* Intel RealSense RGB-D camera
-* Unitree GO-M8010-6 actuators
-* NVIDIA GPU recommended for IL training
+- Python ≥ 3.9
+- MuJoCo ≥ 2.3
+- ROS Noetic
+- Intel RealSense RGB-D camera
+- Unitree GO-M8010-6 actuators
+- NVIDIA GPU recommended for IL training
 
 ---
 
