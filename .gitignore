@@ -82,7 +82,12 @@ plots/
 # ========================================
 # Media folders for large raw videos
 # ========================================
-videos/
+# Ignore large raw video formats only (but allow gifs)
+videos/**/*.mp4
+videos/**/*.mov
+videos/**/*.avi
+videos/**/*.mkv
+
 
 # ========================================
 # Allow documentation and paper images
