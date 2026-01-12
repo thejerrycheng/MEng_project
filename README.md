@@ -1,12 +1,8 @@
 # 🎥 **IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control**
 
-> **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
-> This repository contains the complete **hardware, simulation, control, ROS data collection, and learning stack**, enabling seamless **sim-to-real and real-to-sim** workflows.
-
 <p align="center">
-  <img src="images/hero.png" width="85%">
+  <img src="images/hero.png" width="70%">
 </p>
-
 <p align="center">
   <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
   <a href="#2️⃣-low-level-actuator-control">2️⃣ Actuator Control</a> •
@@ -16,6 +12,8 @@
   <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
   <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
 </p>
+> **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
+> This repository contains the complete **hardware, simulation, control, ROS data collection, and learning stack**, enabling seamless **sim-to-real and real-to-sim** workflows.
 
 <p align="center">
   <img src="images/overview.png" width="100%">
