@@ -2,12 +2,24 @@
 set -e
 
 # ==========================================
-# IRIS Rosbag Processing Script
+# IRIS Rosbag Processing Script (SSD)
 # ==========================================
 
-# Default directories
-BAG_DIR="$HOME/Desktop/MEng_project/rosbag_data"
-OUT_DIR="$HOME/Desktop/MEng_project/raw_data"
+# SSD mount point
+SSD_MOUNT="/media/jerry/SSD"
+
+# Default directories on SSD
+BAG_DIR="$SSD_MOUNT/rosbag_data"
+OUT_DIR="$SSD_MOUNT/raw_data"
+
+# ----------------------------
+# Check SSD mounted
+# ----------------------------
+if [[ ! -d "$SSD_MOUNT" ]]; then
+  echo "❌ ERROR: SSD not found at $SSD_MOUNT"
+  echo "Is the external drive mounted?"
+  exit 1
+fi
 
 # ----------------------------
 # Parse arguments
@@ -26,7 +38,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: ./process_bag.sh --bag <bag_name or bag_path> [--dir <bag_directory>]"
+      echo "Usage: ./process_rosbag.sh --bag <bag_name or full_path> [--dir <bag_directory>]"
       exit 1
       ;;
   esac
@@ -51,7 +63,7 @@ else
   BAG_PATH="$BAG_DIR/$BAG_NAME"
 fi
 
-if [ ! -f "$BAG_PATH" ]; then
+if [[ ! -f "$BAG_PATH" ]]; then
   echo "❌ Bag not found: $BAG_PATH"
   exit 1
 fi
@@ -68,8 +80,9 @@ mkdir -p "$FINAL_OUT"
 # ----------------------------
 echo "=========================================="
 echo " IRIS Rosbag Processing"
-echo " Bag:   $BAG_PATH"
-echo " Output: $FINAL_OUT"
+echo " Bag:     $BAG_PATH"
+echo " Output:  $FINAL_OUT"
+echo " SSD:     $SSD_MOUNT"
 echo "=========================================="
 
 python3 "$HOME/Desktop/MEng_project/bag_reader/scripts/iris_rosbag_reader.py" \
