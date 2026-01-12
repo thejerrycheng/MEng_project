@@ -4,17 +4,17 @@
 > This repository contains the complete **hardware, simulation, control, ROS data collection, and learning stack**, enabling seamless **sim-to-real and real-to-sim** workflows.
 
 <p align="center">
-  <img src="docs/media/iris_hero.gif" width="85%">
+  <img src="images/hero.png" width="85%">
 </p>
 
 <p align="center">
-  <a href="#1-hardware-platform">1️⃣ Hardware</a> •
-  <a href="#2-low-level-actuator-control">2️⃣ Actuator Control</a> •
-  <a href="#3-mujoco-simulation">3️⃣ MuJoCo Simulation</a> •
-  <a href="#4-ros-interface-and-rosbag-collection">4️⃣ ROS + Rosbags</a> •
-  <a href="#5-data-processing">5️⃣ Data Processing</a> •
-  <a href="#6-imitation-learning">6️⃣ Imitation Learning</a> •
-  <a href="#7-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
+  <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
+  <a href="#2️⃣-low-level-actuator-control">2️⃣ Actuator Control</a> •
+  <a href="#3️⃣-mujoco-simulation">3️⃣ MuJoCo Simulation</a> •
+  <a href="#4️⃣-ros-interface-and-rosbag-collection">4️⃣ ROS + Rosbags</a> •
+  <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
+  <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
+  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
 </p>
 
 <p align="center">
@@ -97,7 +97,7 @@ python velocity_teleop.py             # Velocity control demo
 ```
 
 <p align="center">
-  <img src="videos/motor.gif" width="30%">
+  <img src="videos/motor.gif" width="35%">
 </p>
 
 ---
@@ -127,10 +127,8 @@ python line_path_tracking.py
 ```
 
 <p align="center">
-  <img src="videos/apf.gif" width="50%">
-</p>
-<p align="center">
-  <img src="videos/rrt.gif" width="50%">
+  <img src="videos/apf.gif" width="45%">
+  <img src="videos/rrt.gif" width="45%">
 </p>
 
 ### ▶️ Interactive Teleoperation
@@ -141,7 +139,7 @@ python teleop_fk.py     # Joint-space teleoperation
 ```
 
 <p align="center">
-  <img src="videos/apf.gif" width="70%">
+  <img src="videos/teleop.gif" width="60%">
 </p>
 
 ---
@@ -182,11 +180,7 @@ rosrun unitree_arm_ros mujoco_visualizer.py
 ```
 
 <p align="center">
-  <img src="docs/media/ros_mujoco_sync.gif" width="50%">
-</p>
-
-<p align="center">
-  <img src="docs/media/" width="50%">
+  <img src="docs/media/ros_mujoco_sync.gif" width="60%">
 </p>
 
 ### ▶️ Record Rosbag Demonstrations
@@ -196,21 +190,9 @@ cd bag_reader/scripts
 bash iris_rosbag_record.sh -O demo_name
 ```
 
-Recorded topics include:
-
-```
-/arm/command
-/joint_states
-/tf
-/camera/color/image_raw
-/camera/depth/image_rect_raw
-```
-
 <p align="center">
-  <img src="videos/data_collection_iris-ezgif.com-video-to-gif-converter.gif" width="66%">
-</p>
-<p align="center">
-  <img src="videos/semi_automous_data_collection.gif" width="50%">
+  <img src="videos/data_collection.gif" width="60%">
+  <img src="videos/semi_autonomous_data_collection.gif" width="60%">
 </p>
 
 ---
