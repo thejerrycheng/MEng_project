@@ -1,0 +1,30 @@
+data:
+  data_root: /media/jerry/SSD/processed_data
+  bag_prefix: 0.3_0.3_0.3_goal_20260111_181031
+
+model:
+  seq_len: 5
+  future_steps: 8
+  d_model: 256
+  nhead: 8
+  enc_layers: 4
+  dec_layers: 4
+  ff_dim: 1024
+  dropout: 0.1
+
+train:
+  batch_size: 32
+  epochs: 80
+  lr: 3e-4
+  weight_decay: 1e-4
+  grad_clip: 1.0
+  num_workers: 6
+  patience: 12
+
+scheduler:
+  warmup_steps: 500
+  min_lr: 1e-5
+
+loss:
+  lambda_cont: 1.0
+  lambda_goal: 0.3

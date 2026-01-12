@@ -184,7 +184,7 @@ class EpisodeWindowDataset(Dataset):
             joint_seq.append(ep["joints"][fi])
 
         rgb_seq = torch.stack(rgb_seq)
-        joint_seq = torch.tensor(joint_seq, dtype=torch.float32)
+        joint_seq = torch.from_numpy(np.asarray(joint_seq)).float()
 
         q_last = ep["joints"][start + self.seq_len - 1]
         fut = ep["joints"][start + self.seq_len : start + self.seq_len + self.future_steps]

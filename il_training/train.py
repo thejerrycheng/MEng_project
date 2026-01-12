@@ -1,301 +1,233 @@
-import os
-import torch
+#!/usr/bin/env python3
+import os, math, yaml, torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision.transforms as transforms
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
-from torchvision import models
-import cv2
-from scipy.interpolate import interp1d
-import ast
 
-# Paths to data
-depth_data_folder = "../bag_reader/scripts/depth_data/data_20250209_203309"
-joint_data_file = "../bag_reader/scripts/robot_data/data_20250209_203309/joint_states.csv"
-models_dir = "models"
-plots_dir = "plots"
+from torch.utils.data import DataLoader
 
-# Create directories if they don't exist
-os.makedirs(models_dir, exist_ok=True)
-os.makedirs(plots_dir, exist_ok=True)
-
-# Hyperparameters
-BATCH_SIZE = 16
-LR = 0.001
-EPOCHS = 50
-SEQ_LEN = 5  # Number of past frames to consider for temporal dependency
-PATIENCE = 5  # Early stopping patience
-
-# Load joint state data
-joint_data = pd.read_csv(joint_data_file)
-
-# Convert joint positions from string to numerical values
-joint_data.iloc[:, 1] = joint_data.iloc[:, 1].apply(lambda x: ast.literal_eval(x))
-joint_positions = np.array(joint_data.iloc[:, 1].tolist())
-joint_timestamps = joint_data.iloc[:, 0].values
-
-# Interpolate joint state data to match depth images
-depth_files = sorted(os.listdir(depth_data_folder))
-
-# Create interpolation functions for each joint
-interp_funcs = [interp1d(joint_timestamps, joint_positions[:, i], kind='linear', fill_value='extrapolate') for i in range(joint_positions.shape[1])]
-print("The interpolation function is made... interpolation started")
-
-# Generate interpolated joint positions for depth images
-depth_timestamps = np.linspace(joint_timestamps[0], joint_timestamps[-1], len(depth_files))
-interpolated_joints = np.stack([interp_funcs[i](depth_timestamps) for i in range(joint_positions.shape[1])], axis=1)
-
-# Preprocessing pipeline for depth images
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((128, 128)),
-    transforms.ToTensor()
-])import rosbag
-from sensor_msgs.msg import Image, CameraInfo, JointState
-from cv_bridge import CvBridge
-import cv2
-import argparse
-import os
-import numpy as np
-import pandas as pd
-import json
-import ast
-import tkinter as tk
-from tkinter import simpledialog
-from scipy.interpolate import interp1d
-
-def read_images_from_rosbag(bag_file, topic):
-    bridge = CvBridge()
-    images = []
-    timestamps = []
-    
-    with rosbag.Bag(bag_file, 'r') as bag:
-        for topic, msg, t in bag.read_messages(topics=[topic]):
-            try:
-                cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-                images.append(cv_image)
-                timestamps.append(t.to_sec())
-            except Exception as e:
-                # print(f"Error converting image:", e)
-                print("We have problem here ")
-    return images, timestamps
-
-def read_joint_states_from_rosbag(bag_file, topic):
-    timestamps = []
-    positions = []
-    velocities = []
-    torques = []
-    
-    with rosbag.Bag(bag_file, 'r') as bag:
-        for topic, msg, t in bag.read_messages(topics=[topic]):
-            try:
-                timestamps.append(t.to_sec())
-                positions.append(msg.position)
-                velocities.append(msg.velocity)
-                torques.append(msg.effort)
-            except Exception as e:
-                print(f"Error processing joint state message: {e}")
-    
-    return np.array(timestamps), np.array(positions), np.array(velocities), np.array(torques)
-
-def interpolate_joint_states(image_timestamps, joint_timestamps, positions, velocities, torques):
-    if len(joint_timestamps) == 0:
-        print("Warning: No joint states available, using default zero values.")
-        return [{"position": [0.0] * 6, "velocity": [0.0] * 6, "effort": [0.0] * 6} for _ in range(len(image_timestamps))]
-    
-    num_joints = positions.shape[1]
-    interpolated_joint_states = []
-    
-    for i, timestamp in enumerate(image_timestamps):
-        interp_joint_state = {
-            "position": [], "velocity": [], "effort": []
-        }
-        for data, key in zip([positions, velocities, torques], ["position", "velocity", "effort"]):
-            interp_funcs = [interp1d(joint_timestamps, data[:, j], kind='linear', fill_value='extrapolate') for j in range(num_joints)]
-            interp_joint_state[key] = [interp_func(timestamp) for interp_func in interp_funcs]
-        interpolated_joint_states.append(interp_joint_state)
-    
-    return interpolated_joint_states
-
-def normalize_depth_image(image):
-    normalized_image = np.clip(image, 0, 10000)
-    normalized_image = (normalized_image / 10000.0) * 255
-    normalized_image = np.uint8(normalized_image)
-    return cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2BGR)
-
-def display_images(depth_images, color_images, index):    
-    color_image = color_images[index].copy()
-    target_size = (600, 400)
-    color_image = cv2.resize(color_image, target_size, interpolation=cv2.INTER_AREA)
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 1
-    text_color = (255, 255, 255)
-    thickness = 2
-    position = (10, 30)
-    cv2.putText(color_image, f"RGB Frame: {index}", position, font, font_scale, text_color, thickness, cv2.LINE_AA)
-    return color_image
-
-def save_clip(depth_images, color_images, joint_states, start_index, end_index):
-    clip_folder = "saved_clips"
-    os.makedirs(clip_folder, exist_ok=True)
-    clip_path = os.path.join(clip_folder, f"clip_{start_index}_to_{end_index}")
-    os.makedirs(clip_path, exist_ok=True)
-    depth_clip_folder = os.path.join(clip_path, "depth")
-    color_clip_folder = os.path.join(clip_path, "rgb")
-    joint_states_file = os.path.join(clip_path, "joint_states.json")
-    os.makedirs(depth_clip_folder, exist_ok=True)
-    os.makedirs(color_clip_folder, exist_ok=True)
-    for i in range(start_index, end_index + 1):
-        cv2.imwrite(os.path.join(depth_clip_folder, f"{i}.png"), normalize_depth_image(depth_images[i]))
-        cv2.imwrite(os.path.join(color_clip_folder, f"{i}.png"), color_images[i])
-    with open(joint_states_file, 'w') as f:
-        json.dump(joint_states[start_index:end_index+1], f, indent=4)
-    print(f"Saved clip from frame {start_index} to {end_index} at {clip_path}")
-
-def main():
-    parser = argparse.ArgumentParser(description='Read and display frames from a ROS bag file.')
-    parser.add_argument('--bag', required=True, help='Path to the ROS bag file')
-    args = parser.parse_args()
-    bag_file = args.bag
-    depth_topic = "/camera/depth/image_rect_raw"
-    color_topic = "/camera/color/image_raw"
-    joint_topic = "/ufactory/joint_states"
-    depth_images, depth_timestamps = read_images_from_rosbag(bag_file, depth_topic)
-    color_images, color_timestamps = read_images_from_rosbag(bag_file, color_topic)
-    joint_timestamps, positions, velocities, torques = read_joint_states_from_rosbag(bag_file, joint_topic)
-    interpolated_joint_states = interpolate_joint_states(depth_timestamps, joint_timestamps, positions, velocities, torques)
-    index = 0
-    total_frames = len(depth_images)
-    clip_start = None
-    while True:
-        combined_image = display_images(depth_images, color_images, index)
-        cv2.imshow('Frame Viewer', combined_image)
-        key = cv2.waitKey(0) & 0xFF
-        if key == 81:
-            index = max(0, index - 1)
-        elif key == 83:
-            index = min(total_frames - 1, index + 1)
-        elif key == ord('x'):
-            if clip_start is None:
-                clip_start = index
-                print(f"Beginning of the clip selected at frame {clip_start}")
-            else:
-                clip_end = index
-                print(f"End of the clip selected at frame {clip_end}")
-        elif key == 13 and clip_start is not None:
-            save_clip(depth_images, color_images, interpolated_joint_states, clip_start, index)
-            clip_start = None
-        elif key == ord('c'):
-            clip_start = None
-            print("Clip selection cleared.")
-        elif key == ord('q'):
-            break
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
+from datasets.iris_dataset import list_episode_dirs, load_episode, EpisodeWindowDataset
+from models.transformer_model import ACT_RGB
+from losses.loss import act_loss, batch_fk
 
 
-class ImitationDataset(Dataset):
-    def __init__(self, depth_folder, interpolated_joints, seq_len=SEQ_LEN):
-        self.depth_folder = depth_folder
-        self.seq_len = seq_len
-        self.joint_positions = interpolated_joints
-        self.image_files = sorted(os.listdir(self.depth_folder))
+# -------------------------------------------------
+# Load Config
+# -------------------------------------------------
+cfg = yaml.safe_load(open("configs/train.yaml"))
 
-    def __len__(self):
-        return len(self.image_files) - self.seq_len
-
-    def __getitem__(self, idx):
-        depth_images = []
-        joint_angles_seq = []
-        for i in range(self.seq_len):
-            img_path = os.path.join(self.depth_folder, self.image_files[idx + i])
-            img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
-            img = transform(img)
-            depth_images.append(img)
-            joint_angles_seq.append(torch.tensor(self.joint_positions[idx + i], dtype=torch.float32))
-        
-        depth_images = torch.stack(depth_images)  # Shape: (seq_len, C, H, W)
-        joint_angles_seq = torch.stack(joint_angles_seq)  # Shape: (seq_len, 6)
-        next_joint_angles = torch.tensor(self.joint_positions[idx + self.seq_len], dtype=torch.float32)  # Shape: (6,)
-        return depth_images, joint_angles_seq, next_joint_angles
-
-# Define model
-class ImitationPolicy(nn.Module):
-    def __init__(self, seq_len=SEQ_LEN, output_dim=6):
-        super(ImitationPolicy, self).__init__()
-        self.backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-        self.backbone.fc = nn.Identity()  # Remove final FC layer
-        self.lstm = nn.LSTM(input_size=518, hidden_size=256, num_layers=2, batch_first=True)  # Input: (batch, seq_len, 518)
-        self.fc = nn.Linear(256, output_dim)  # Output: (batch, 6)
-
-    def forward(self, depth, joint_angles):
-        B, S, C, H, W = depth.shape  # (Batch, Sequence, Channels, Height, Width)
-        depth = depth.view(B * S, C, H, W)  # Flatten sequence into batch
-        depth_features = self.backbone(depth)  # Extract features (B*S, 512)
-        depth_features = depth_features.view(B, S, -1)  # Reshape back to sequence format (B, S, 512)
-        x = torch.cat((depth_features, joint_angles), dim=2)  # Concatenate depth and joint angles (B, S, 518)
-        x, _ = self.lstm(x)  # LSTM for temporal dependencies (B, S, 256)
-        x = self.fc(x[:, -1, :])  # Take last timestep output (B, 6)
-        return x
-
-# Training setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset = ImitationDataset(depth_data_folder, interpolated_joints)
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
+print("Using device:", device)
 
-model = ImitationPolicy().to(device)
-optimizer = optim.Adam(model.parameters(), lr=LR)
-criterion = nn.MSELoss()
+os.makedirs("outputs/models", exist_ok=True)
+os.makedirs("outputs/plots", exist_ok=True)
 
-# Early stopping
-best_loss = float("inf")
-stopping_counter = 0
 
-# Training loop
-losses = []
-for epoch in range(EPOCHS):
-    model.train()
-    epoch_loss = 0
-    for depth_imgs, joint_angles_seq, next_joint_angles in dataloader:
-        depth_imgs, joint_angles_seq, next_joint_angles = depth_imgs.to(device), joint_angles_seq.to(device), next_joint_angles.to(device)
-        optimizer.zero_grad()
-        outputs = model(depth_imgs, joint_angles_seq)
-        loss = criterion(outputs, next_joint_angles)
-        loss.backward()
-        optimizer.step()
-        epoch_loss += loss.item()
-    
-    avg_loss = epoch_loss / len(dataloader)
-    losses.append(avg_loss)
-    print(f"Epoch [{epoch+1}/{EPOCHS}], Loss: {avg_loss:.4f}")
-    
-    # Save best model
-    if avg_loss < best_loss:
-        best_loss = avg_loss
-        stopping_counter = 0
-        torch.save(model.state_dict(), os.path.join(models_dir, "depth_best_model.pth"))
+# -------------------------------------------------
+# Load Episodes from SSD
+# -------------------------------------------------
+dirs = list_episode_dirs(cfg["data"]["data_root"], cfg["data"]["bag_prefix"])
+episodes = [load_episode(d) for d in dirs]
+episodes = [e for e in episodes if e is not None]
+
+if len(episodes) == 0:
+    raise RuntimeError("No episodes found!")
+
+print(f"Loaded {len(episodes)} episodes")
+
+# -------------------------------------------------
+# Split by Episode (no leakage)
+# -------------------------------------------------
+N = len(episodes)
+n_train = int(0.8 * N)
+n_val   = int(0.1 * N)
+
+train_eps = episodes[:n_train]
+val_eps   = episodes[n_train:n_train+n_val]
+test_eps  = episodes[n_train+n_val:]
+
+print(f"Split -> Train:{len(train_eps)}  Val:{len(val_eps)}  Test:{len(test_eps)}")
+
+# -------------------------------------------------
+# Create Datasets
+# -------------------------------------------------
+train_ds = EpisodeWindowDataset(train_eps, cfg["model"]["seq_len"], cfg["model"]["future_steps"])
+val_ds   = EpisodeWindowDataset(val_eps,   cfg["model"]["seq_len"], cfg["model"]["future_steps"])
+test_ds  = EpisodeWindowDataset(test_eps,  cfg["model"]["seq_len"], cfg["model"]["future_steps"])
+
+train_loader = DataLoader(
+    train_ds,
+    batch_size=cfg["train"]["batch_size"],
+    shuffle=True,
+    num_workers=cfg["train"]["num_workers"],
+    pin_memory=True
+)
+
+val_loader = DataLoader(
+    val_ds,
+    batch_size=cfg["train"]["batch_size"],
+    shuffle=False,
+    num_workers=cfg["train"]["num_workers"],
+    pin_memory=True
+)
+
+test_loader = DataLoader(
+    test_ds,
+    batch_size=cfg["train"]["batch_size"],
+    shuffle=False,
+    num_workers=cfg["train"]["num_workers"],
+    pin_memory=True
+)
+
+print(f"Windows -> Train:{len(train_ds)}  Val:{len(val_ds)}  Test:{len(test_ds)}")
+
+
+# -------------------------------------------------
+# Build Model
+# -------------------------------------------------
+model = ACT_RGB(**cfg["model"]).to(device)
+
+optimizer = optim.AdamW(
+    model.parameters(),
+    lr=cfg["train"]["lr"],
+    weight_decay=cfg["train"]["weight_decay"],
+    betas=(0.9, 0.95)
+)
+
+
+# -------------------------------------------------
+# Warmup + Cosine Scheduler
+# -------------------------------------------------
+total_steps = cfg["train"]["epochs"] * len(train_loader)
+warmup_steps = cfg["scheduler"]["warmup_steps"]
+min_lr = cfg["scheduler"]["min_lr"]
+base_lr = cfg["train"]["lr"]
+
+def lr_lambda(step):
+    if step < warmup_steps:
+        return step / warmup_steps
+    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+    cosine = 0.5 * (1 + math.cos(math.pi * progress))
+    return max(min_lr / base_lr, cosine)
+
+scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+# -------------------------------------------------
+# One Epoch Function
+# -------------------------------------------------
+def run_epoch(loader, train=True):
+    model.train(train)
+    total_loss = 0
+
+    for rgb, joint, goal_xyz, future in loader:
+        rgb = rgb.to(device, non_blocking=True)
+        joint = joint.to(device, non_blocking=True)
+        goal_xyz = goal_xyz.to(device, non_blocking=True)
+        future = future.to(device, non_blocking=True)
+
+        pred = model(rgb, joint, goal_xyz)
+
+        loss = act_loss(
+            pred, future, joint, goal_xyz,
+            cfg["loss"]["lambda_cont"],
+            cfg["loss"]["lambda_goal"]
+        )
+
+        if train:
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), cfg["train"]["grad_clip"])
+            optimizer.step()
+            scheduler.step()
+
+        total_loss += loss.item()
+
+    return total_loss / len(loader)
+
+
+# -------------------------------------------------
+# Training Loop
+# -------------------------------------------------
+best_val = float("inf")
+train_curve, val_curve = [], []
+bad_epochs = 0
+
+print("\n===== START TRAINING =====")
+
+for epoch in range(cfg["train"]["epochs"]):
+    train_loss = run_epoch(train_loader, train=True)
+    val_loss   = run_epoch(val_loader, train=False)
+
+    train_curve.append(train_loss)
+    val_curve.append(val_loss)
+
+    print(f"Epoch {epoch+1:03d} | Train {train_loss:.6f} | Val {val_loss:.6f}")
+
+    if val_loss < best_val:
+        best_val = val_loss
+        torch.save(model.state_dict(), "outputs/models/best_model.pth")
+        bad_epochs = 0
+        print("   ✅ Saved new best model")
     else:
-        stopping_counter += 1
-    
-    # # Early stopping condition
-    # if stopping_counter >= PATIENCE:
-    #     print("Early stopping triggered.")
-    #     break
+        bad_epochs += 1
 
+    if bad_epochs >= cfg["train"]["patience"]:
+        print("Early stopping triggered.")
+        break
+
+
+# -------------------------------------------------
 # Save final model
-torch.save(model.state_dict(), os.path.join(models_dir, "depth_final_model.pth"))
+# -------------------------------------------------
+torch.save(model.state_dict(), "outputs/models/final_model.pth")
+print("Saved final model.")
 
-# Plot training loss
+
+# -------------------------------------------------
+# Plot Loss Curves
+# -------------------------------------------------
 plt.figure()
-plt.plot(range(1, len(losses) + 1), losses, marker='o', linestyle='-')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Training Loss vs. Epoch')
-plt.grid()
-plt.savefig(os.path.join(plots_dir, "loss_plot_depth.png"))
-plt.show()
+plt.plot(train_curve, label="Train")
+plt.plot(val_curve, label="Val")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("outputs/plots/loss_curve.png", dpi=200)
+print("Saved loss plot.")
+
+
+# -------------------------------------------------
+# Test Evaluation (FK Goal Error)
+# -------------------------------------------------
+print("\n===== RUNNING TEST EVALUATION =====")
+
+model.load_state_dict(torch.load("outputs/models/best_model.pth"))
+model.eval()
+
+cart_errors = []
+
+with torch.no_grad():
+    for rgb, joint, goal_xyz, future in test_loader:
+        rgb = rgb.to(device)
+        joint = joint.to(device)
+        goal_xyz = goal_xyz.to(device)
+
+        pred = model(rgb, joint, goal_xyz)
+
+        q_last = joint[:, -1, :]
+        q_pred_last = q_last + pred[:, -1, :]
+        xyz_pred = batch_fk(q_pred_last)
+
+        err = torch.norm(xyz_pred - goal_xyz, dim=1)
+        cart_errors.append(err.cpu())
+
+cart_errors = torch.cat(cart_errors).numpy()
+
+print(f"\nTest Cartesian Goal Error:")
+print(f"Mean: {cart_errors.mean():.4f} m")
+print(f"Std : {cart_errors.std():.4f} m")
+
+print("\n===== DONE =====")
