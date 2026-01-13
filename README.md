@@ -144,6 +144,10 @@ Where:
   \theta_i = \theta_i^{off} + q_i
   ]
 
+<p align="center">
+  <img src="images/kinematics.png" width="50%">
+</p>
+
 ---
 
 ### 🔢 Forward Kinematics
