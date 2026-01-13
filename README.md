@@ -58,6 +58,10 @@ The design emphasizes low cost, modularity, and high backdrivability for kinesth
   <img src="images/render.png" width="70%">
 </p>
 
+<p align="center">
+  <img src="images/mechanical.png" width="40%">
+</p>
+
 ---
 
 ## 2️⃣ Low-Level Actuator Control
@@ -289,6 +293,10 @@ This node mirrors the real robot configuration into the MuJoCo digital twin:
 
 This enables real‑time verification of kinematic consistency and safety before executing learned policies.
 
+<p align="center">
+  <img src="images/sim2real.png" width="60%">
+</p>
+
 ---
 
 ### ✋ Kinesthetic Teaching and Playback
@@ -334,7 +342,7 @@ These streams provide timestamp‑aligned perception inputs for imitation learni
 Automated SSD‑backed data collection:
 
 ```bash
-bash start_data_collection.sh --goal X Y Z [--obstacle]
+bash calibrated_data_collection -O NAME
 ```
 
 Features:
@@ -358,6 +366,20 @@ Features:
 ```
 
 Each bag is later converted into episode folders for training.
+
+---
+
+### Human expert data collection demonstrations data collection
+
+<p align="center">
+  <img src="videos/data_collection_iris-ezgif.com-video-to-gif-converter.gif" width="60%">
+</p>
+
+### Semi-autonumous data collection deployment
+
+<p align="center">
+  <img src="videos/semi_automous_data_collection.gif" width="60%">
+</p>
 
 ---
 
@@ -578,7 +600,7 @@ plots/loss_iris_goal_exp1.png
 ### 📊 Training Curves
 
 <p align="center">
-  <img src="docs/media/loss_curve.png" width="60%">
+  <img src="images/training_loss.png" width="60%">
 </p>
 
 ---
