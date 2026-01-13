@@ -695,7 +695,7 @@ This allows exact temporal reconstruction for evaluation.
 Visuomotor imitation learning is implemented using an **Action‑Conditioned Transformer (ACT)** that predicts short‑horizon future joint trajectories conditioned on RGB observations, robot joint states, and a target goal.
 
 <p align="center">
-  <img src="docs/media/act_architecture.png" width="85%">
+  <img src="images/architecture.png" width="100%">
 </p>
 
 ---
