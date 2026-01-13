@@ -62,6 +62,175 @@ The design emphasizes low cost, modularity, and high backdrivability for kinesth
   <img src="images/mechanical.png" width="40%">
 </p>
 
+## 📦 Bill of Materials (BOM)
+
+**Preliminary Bill of Materials (BOM) for the Cinema Robot Arm Prototype**
+
+| Category         | Item / Spec                                                          | Qty | Unit (USD) | Link                                                                                                                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------- | --- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Actuators**    | Unitree Go-1 Actuator                                                | 6   | $69.65     | [Taobao](https://detail.tmall.com/item.htm?app=macos_safari&bxsign=scdhoDllLzLDZuz-EHtjr8oQIfUCltxl9vCbc2FvkFQds3He_R33AMzKvX9oPeP9-9TTtP0Ol2Hx3i8Njt_08LuzTDHV1xzmhh6CO4t0s4WdWa76kEhQNE4uulwyXbIJLlv&id=679335252560) |
+| **Linkages**     | Carbon fiber square tube, 25 mm width, 2 mm thickness, 500 mm length | 1   | $27.40     | [AliExpress](https://www.aliexpress.us/item/3256804047779645.html)                                                                                                                                                      |
+| **Bearings**     | Deep groove bearing 26×17×5 mm (OD×ID×Depth)                         | 2   | $1.59      | [AliExpress](https://www.aliexpress.us/item/3256804434442009.html)                                                                                                                                                      |
+|                  | Deep groove bearing 50×40×6 mm                                       | 6   | $2.61      | [Amazon](https://www.amazon.ca/dp/B085NDM5WV)                                                                                                                                                                           |
+|                  | Deep groove bearing 42×30×7 mm                                       | 5   | $2.43      | [AliExpress](https://www.aliexpress.us/item/3256808181942791.html)                                                                                                                                                      |
+| **Transmission** | HTD-5M timing belt, 150 teeth (750 mm)                               | 1   | $15.19     | [Amazon](https://www.amazon.ca/dp/B0DF57XRZ8)                                                                                                                                                                           |
+|                  | HTD-5M timing belt, 160 teeth (800 mm)                               | 2   | $15.56     | [Amazon](https://www.amazon.ca/dp/B0DF4VV4L3)                                                                                                                                                                           |
+| **Fasteners**    | M4 screws & nuts set                                                 | 1   | $16.69     | [Amazon](https://www.amazon.ca/dp/B06XQLTLHP)                                                                                                                                                                           |
+|                  | M3.5 screws & nuts set                                               | 1   | $10.35     | [Amazon](https://www.amazon.ca/dp/B08J3XLR66)                                                                                                                                                                           |
+| **Sensors**      | Intel RealSense RGB-D Camera                                         | 1   | $163.63    | [AliExpress](https://www.aliexpress.us/item/3256804447919393.html)                                                                                                                                                      |
+| **Electronics**  | NVIDIA Jetson Nano                                                   | 1   | $216.15    | [AliExpress](https://www.aliexpress.us/item/3256805156846112.html)                                                                                                                                                      |
+|                  | RS-485 Hub / Adapter                                                 | 1   | $0.99      | [AliExpress](https://www.aliexpress.us/item/2251832830864445.html)                                                                                                                                                      |
+|                  | Main Power Supply (≥300 W)                                           | 1   | $34.97     | [AliExpress](https://www.aliexpress.us/item/2251832763824772.html)                                                                                                                                                      |
+| **3D Printing**  | PLA Filament (30% infill, honeycomb interior, BambuLab)              | 1   | $16.99     | [BambuLab](https://ca.store.bambulab.com/products/pla-basic-filament)                                                                                                                                                   |
+| **Misc.**        | Wire sleeving / braided loom                                         | 1   | $9.26      | [Amazon](https://www.amazon.ca/dp/B07S73S5TD)                                                                                                                                                                           |
+
+---
+
+### 💰 **Total Cost**
+
+**Estimated Total:** **$991.63 USD**
+
+---
+
+### 📝 Notes
+
+- Prices reflect current online listings and may fluctuate.
+- Shipping, import duties, and taxes are not included.
+- Actuators dominate cost — alternative motor selections can significantly change total budget.
+- The BOM is sufficient for a **1 m reach, ~1.5 kg payload cinema robot arm prototype**.
+
+<p align="center">
+  <img src="images/parts.png" width="50%">
+</p>
+
+---
+
+## 🦾 Robot Kinematics
+
+This section documents the **forward kinematics model** of the **IRIS cinema robot arm**, defined using the **standard Denavit–Hartenberg (DH) convention**.
+The DH parameters are used consistently across:
+
+- MuJoCo simulation model
+- Analytical forward / inverse kinematics solvers
+- Jacobian-based control
+- Trajectory planning and optimization
+
+All frames follow the **standard DH assignment**:
+each joint frame is attached such that the (z_i)-axis aligns with joint (i)'s rotation axis.
+
+---
+
+### 📐 Denavit–Hartenberg Parameters
+
+**Standard DH Convention**
+
+| Joint | Description    | (a_i) (m) | (\alpha_i) (deg) | (d_i) (m) | (\theta_i^{off}) (deg) |
+| ----- | -------------- | --------- | ---------------- | --------- | ---------------------- |
+| J1    | Base yaw       | 0.0000    | 0.0              | 0.2487    | 0.0                    |
+| J2    | Shoulder pitch | 0.0218    | 90.0             | 0.0590    | 180.0                  |
+| J3    | Arm pitch      | 0.2998    | 0.0              | 0.0000    | 0.0                    |
+| J4    | Elbow pitch    | 0.0200    | 90.0             | 0.0000    | 0.0                    |
+| J5    | Wrist pitch    | 0.3251    | -90.0            | 0.0000    | 0.0                    |
+| J6    | Wrist roll     | 0.0428    | 90.0             | 0.0000    | 0.0                    |
+
+Where:
+
+- (a_i): link length
+- (\alpha_i): link twist
+- (d_i): link offset
+- (\theta_i^{off}): constant joint angle offset
+- Actual joint angle:
+  [
+  \theta_i = \theta_i^{off} + q_i
+  ]
+
+---
+
+### 🔢 Forward Kinematics
+
+The homogeneous transform from frame (i-1) to frame (i) is:
+
+[
+T_i =
+\begin{bmatrix}
+\cos\theta_i & -\sin\theta_i\cos\alpha_i & \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \
+\sin\theta_i & \cos\theta_i\cos\alpha_i & -\cos\theta_i\sin\alpha_i & a_i\sin\theta_i \
+0 & \sin\alpha_i & \cos\alpha_i & d_i \
+0 & 0 & 0 & 1
+\end{bmatrix}
+]
+
+The end-effector pose is computed as:
+
+[
+T_{0}^{6} = \prod_{i=1}^{6} T_i
+]
+
+This transformation is implemented in:
+
+```
+mujoco_sim/kinematics/forward_kinematics.py
+```
+
+and verified against the MuJoCo model.
+
+---
+
+### 🎯 Workspace
+
+With the above parameters, the arm provides:
+
+- **Maximum reach:** ~1.0 m
+- **6-DOF full pose control**
+- **Continuous yaw at base**
+- **Decoupled wrist for smooth camera orientation**
+
+This kinematic design is optimized for **cinematographic shot composition**, providing long reach and smooth viewpoint control.
+
+---
+
+### 🧩 Inverse Kinematics
+
+Inverse kinematics is solved using:
+
+- Analytical Jacobian-based iterative solver
+- Damped least-squares for singularity robustness
+
+Implemented in:
+
+```
+mujoco_sim/kinematics/inverse_kinematics.py
+```
+
+---
+
+### 🧠 Usage
+
+Compute forward kinematics:
+
+```bash
+python mujoco_sim/kinematics/forward_kinematics.py --q 0 0 0 0 0 0
+```
+
+Solve inverse kinematics:
+
+```bash
+python mujoco_sim/kinematics/inverse_kinematics.py --target_xyz 0.6 0.0 0.5
+```
+
+---
+
+### ✅ Model Consistency
+
+The same DH parameters are used for:
+
+- MuJoCo XML model
+- ROS TF tree
+- Analytical solvers
+- Learning-based controllers
+
+This guarantees **consistent sim-to-real kinematic alignment**.
+
 ---
 
 ## 2️⃣ Low-Level Actuator Control
@@ -637,9 +806,21 @@ Includes model size, training schedule, and loss weights.
 
 ### 🏁 Summary Pipeline
 
-## Processed Episodes → Dataset → ACT Model → ACT Loss → Training → Checkpoints → Evaluation
+Processed Episodes → Dataset → ACT Model → ACT Loss → Training → Checkpoints → Evaluation
 
 ## 7️⃣ Sim-to-Real Deployment
+
+### ▶️ Quick start for sim2real:
+
+To test out the inverse kinematics, run the following command. The script will compute the joint position using optimization in sim and command the robot via ROS.
+
+```bash
+rosrun unitree_arm_ros keyboard_ik_teleop.py
+```
+
+<p align="center">
+  <img src="videos/inverse_kinematics-ezgif.com-video-to-gif-converter.gif" width="60%">
+</p>
 
 Planned or learned trajectories can be:
 
