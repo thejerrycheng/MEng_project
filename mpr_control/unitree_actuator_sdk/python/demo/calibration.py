@@ -2,256 +2,122 @@
 import time
 import sys
 import csv
-from datetime import datetime
+import os
+import threading
 
-# Add SDK to path
+# ----------------------------
+# SDK Setup
+# ----------------------------
 sys.path.append('../lib')
-from unitree_actuator_sdk import *
+try:
+    from unitree_actuator_sdk import *
+except ImportError:
+    print("Error: unitree_actuator_sdk not found.")
+    sys.exit(1)
 
 # ----------------------------
-# Robot and Communication Setup
+# Configuration
 # ----------------------------
-serial = SerialPort('/dev/ttyUSB0')
+SERIAL_PORT = '/dev/ttyUSB0'
+MOTOR_TYPE = MotorType.GO_M8010_6
+MOTOR_IDS = [0, 1, 2, 3, 4, 5]
+CALIB_FILE = "calibration_data.csv"
+
+# Hardware Init
+serial = SerialPort(SERIAL_PORT)
 cmd = MotorCmd()
 data = MotorData()
-
-# Motor IDs for the 6 joints
-motor_ids = [0, 1, 2, 3, 4, 5]
-
-# Get gear ratio for position conversion
-gear_ratio = queryGearRatio(MotorType.GO_M8010_6)
-
-# Joint names for better readability
-joint_names = [
-    "Base (J0)",
-    "Shoulder (J1)", 
-    "Elbow (J2)",
-    "Wrist Roll (J3)",
-    "Wrist Pitch (J4)",
-    "Wrist Yaw (J5)"
-]
+GEAR = queryGearRatio(MOTOR_TYPE)
 
 # ----------------------------
-# Zero Torque Read Function
+# Functions
 # ----------------------------
-def read_motor_passive(motor_id):
+def read_motor_raw(motor_id):
     """
-    Reads motor position with zero torque applied.
-    Commands the current position back with zero gains to maintain passive state.
-    Returns position divided by gear ratio for actual joint angle.
+    Reads motor output shaft angle (Radians).
+    Raw Motor Angle / GearRatio
     """
-    # Read current sensor value
-    data.motorType = MotorType.GO_M8010_6
-    cmd.motorType = MotorType.GO_M8010_6
-    cmd.mode = queryMotorMode(MotorType.GO_M8010_6, MotorMode.FOC)
+    data.motorType = MOTOR_TYPE
+    cmd.motorType = MOTOR_TYPE
+    cmd.mode = queryMotorMode(MOTOR_TYPE, MotorMode.FOC)
     cmd.id = motor_id
+    
+    # Send/Recv
     serial.sendRecv(cmd, data)
-    current_position = data.q
+    current_raw = data.q
     
-    # Re-command with zero gains (no torque)
-    cmd.q = current_position
-    cmd.dq = 0.0
-    cmd.kp = 0.0
-    cmd.kd = 0.0
-    cmd.tau = 0.0
+    # Keep alive (Passive)
+    cmd.q = current_raw
+    cmd.dq, cmd.kp, cmd.kd, cmd.tau = 0.0, 0.0, 0.0, 0.0
     serial.sendRecv(cmd, data)
     
-    # Divide by gear ratio to get actual joint angle
-    joint_position = data.q / gear_ratio
-    
-    return {
-        "id": motor_id,
-        "position": joint_position,
-        "velocity": data.dq / gear_ratio,
-        "temperature": data.temp,
-        "motor_error": data.merror
-    }
+    # Return angle at output shaft
+    return data.q / GEAR
 
-def read_all_motors_passive():
-    """
-    Reads all motor positions with zero torque.
-    Returns list of motor data dictionaries.
-    """
-    motors_data = []
-    for motor_id in motor_ids:
-        motor_data = read_motor_passive(motor_id)
-        motors_data.append(motor_data)
-    return motors_data
+def read_all_raw():
+    return [read_motor_raw(mid) for mid in MOTOR_IDS]
 
 # ----------------------------
-# Display Functions
+# Main
 # ----------------------------
-def display_positions(motors_data, title="Current Joint Positions"):
-    """
-    Displays joint positions in a nicely formatted table.
-    """
-    print("\n" + "="*70)
-    print(f"  {title}")
-    print("="*70)
-    print(f"{'Joint':<20} {'Position (rad)':<15} {'Position (deg)':<15} {'Temp (°C)'}")
-    print("-"*70)
-    
-    for i, motor_data in enumerate(motors_data):
-        pos_rad = motor_data["position"]
-        pos_deg = pos_rad * 180.0 / 3.14159
-        temp = motor_data["temperature"]
-        print(f"{joint_names[i]:<20} {pos_rad:>10.4f}      {pos_deg:>10.2f}      {temp:>6.1f}")
-    
-    print("="*70 + "\n")
+def main():
+    print("==============================================")
+    print(f" DIFFERENTIAL WRIST CALIBRATION ")
+    print(f" Gear Ratio: {GEAR}")
+    print("==============================================")
+    print("INSTRUCTIONS:")
+    print("1) Move Robot to HOME:")
+    print("   - Arm vertical")
+    print("   - Wrist Pitch = 0 (Aligned with arm)")
+    print("   - Wrist Roll  = 0 (facing forward/default)")
+    print("2) Press ENTER to save RAW motor offsets.")
+    print("==============================================")
 
-def display_live_positions():
-    """
-    Continuously displays current positions until user is ready.
-    Updates every 0.2 seconds.
-    """
-    print("\n" + "="*70)
-    print("  LIVE POSITION MONITOR (Zero Torque Mode)")
-    print("="*70)
-    print("Manually move the robot arm to HOME position:")
-    print("  → Arm should be extended straight up along the Z-axis")
-    print("  → All joints aligned for vertical configuration")
-    print("\nPress ENTER when robot is in HOME position...\n")
-    
-    try:
-        import select
-        import tty
-        import termios
-        
-        # Save terminal settings
-        old_settings = termios.tcgetattr(sys.stdin)
-        
-        try:
-            while True:
-                # Read motors
-                motors_data = read_all_motors_passive()
-                
-                # Clear previous lines (move cursor up and clear)
-                print("\033[F" * (len(motor_ids) + 2), end='')
-                
-                # Display current positions
-                print(f"{'Joint':<20} {'Position (rad)':<15} {'Position (deg)':<15}")
-                print("-"*55)
-                for i, motor_data in enumerate(motors_data):
-                    pos_rad = motor_data["position"]
-                    pos_deg = pos_rad * 180.0 / 3.14159
-                    print(f"{joint_names[i]:<20} {pos_rad:>10.4f}      {pos_deg:>10.2f}")
-                
-                # Check if enter was pressed
-                if select.select([sys.stdin], [], [], 0)[0]:
-                    break
-                    
-                time.sleep(0.2)
-                
-        finally:
-            # Restore terminal settings
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    # Monitor Thread
+    stop_monitor = False
+    def monitor_loop():
+        while not stop_monitor:
+            try:
+                qs = read_all_raw()
+                # Show raw motor values
+                txt = " | ".join([f"M{i}:{q:6.2f}" for i, q in zip(MOTOR_IDS, qs)])
+                print(f"\rRaw Motors: {txt}", end='', flush=True)
+                time.sleep(0.1)
+            except: pass
             
-    except Exception as e:
-        # Fallback for systems without select/termios
-        print("Live update not available. Showing static display...\n")
-        motors_data = read_all_motors_passive()
-        display_positions(motors_data, "Current Joint Positions")
-        input("Press ENTER when robot is in HOME position...")
-        return read_all_motors_passive()
-    
-    return motors_data
+    t = threading.Thread(target=monitor_loop)
+    t.start()
 
-# ----------------------------
-# Save Calibration Data
-# ----------------------------
-def save_home_position(motors_data, filename="home_position.csv"):
-    """
-    Saves the home position to a CSV file with timestamp.
-    """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    with open(filename, "w", newline="") as csvfile:
-        writer = csv.writer(csvfile)
-        
-        # Write header
-        writer.writerow(["timestamp", "joint_name", "motor_id", "position_rad", "position_deg"])
-        
-        # Write data for each joint
-        for i, motor_data in enumerate(motors_data):
-            pos_rad = motor_data["position"]
-            pos_deg = pos_rad * 180.0 / 3.14159
-            writer.writerow([
-                timestamp,
-                joint_names[i],
-                motor_data["id"],
-                f"{pos_rad:.6f}",
-                f"{pos_deg:.2f}"
-            ])
-    
-    print(f"✓ Home position saved to: {filename}")
-
-# ----------------------------
-# Main Calibration Routine
-# ----------------------------
-if __name__ == '__main__':
     try:
-        print("\n" + "="*70)
-        print("  ROBOT ARM CALIBRATION - HOME POSITION SETUP")
-        print("="*70)
-        print("\nInitializing motors in ZERO TORQUE mode...")
-        
-        # Initialize all motors in passive mode
-        for motor_id in motor_ids:
-            read_motor_passive(motor_id)
-        
-        print("✓ Motors initialized successfully")
-        print("✓ Zero torque mode active - arm is free to move manually\n")
-        
-        # Show initial positions
-        motors_data = read_all_motors_passive()
-        display_positions(motors_data, "Initial Joint Positions")
-        
-        # Wait for user confirmation
-        answer = input("Ready to start calibration? (y/n): ")
-        if answer.strip().lower() != 'y':
-            print("\nCalibration cancelled. Exiting...")
-            sys.exit(0)
-        
-        # Live position monitoring
-        print("\nStarting live position monitor...")
-        time.sleep(1)
-        motors_data = display_live_positions()
-        
-        # Record home position
-        print("\n\n" + "="*70)
-        print("  RECORDING HOME POSITION")
-        print("="*70)
-        
-        # Read positions one more time to ensure accuracy
-        motors_data = read_all_motors_passive()
-        display_positions(motors_data, "HOME Position Captured")
-        
-        # Automatically save when ENTER is pressed
-        save_home_position(motors_data)
-        
-        print("\n" + "="*70)
-        print("  CALIBRATION COMPLETE")
-        print("="*70)
-        print("✓ Home position recorded successfully")
-        print("✓ Robot remains in zero torque mode")
-        print("\nYou can now:")
-        print("  • Move the arm manually to test")
-        print("  • Press Ctrl+C to exit the program")
-        print("="*70 + "\n")
-        
-        # Keep motors in passive mode
-        print("Maintaining zero torque mode...")
-        while True:
-            read_all_motors_passive()
-            time.sleep(0.1)
-            
+        input("\n\n>>> Press ENTER to Capture Home <<<\n")
     except KeyboardInterrupt:
-        print("\n\nCalibration interrupted by user.")
-        print("Exiting gracefully...\n")
+        stop_monitor = True
+        t.join()
         sys.exit(0)
-        
-    except Exception as e:
-        print(f"\nError during calibration: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+
+    stop_monitor = True
+    t.join()
+
+    # Capture Average
+    print("\nCapturing...")
+    avg_offsets = [0.0] * 6
+    SAMPLES = 20
+    for _ in range(SAMPLES):
+        qs = read_all_raw()
+        for i in range(6): avg_offsets[i] += qs[i]
+        time.sleep(0.01)
+    
+    avg_offsets = [x/SAMPLES for x in avg_offsets]
+
+    # Save
+    with open(CALIB_FILE, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["motor_id", "zero_offset_rad"])
+        for i, mid in enumerate(MOTOR_IDS):
+            writer.writerow([mid, avg_offsets[i]])
+            
+    print(f"\n[Success] Offsets saved to {CALIB_FILE}")
+    print("Offsets (Raw Radians):", [round(x,3) for x in avg_offsets])
+
+if __name__ == "__main__":
+    main()
