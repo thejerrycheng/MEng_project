@@ -354,6 +354,10 @@ python teleop_fk.py     # Joint-space teleoperation
 The ROS stack provides a unified interface for **real‑robot control, calibration, teleoperation, MuJoCo synchronization, and dataset recording**.
 It bridges the Unitree actuator hardware, RealSense RGB‑D sensing, and the MuJoCo digital twin into a single synchronized pipeline.
 
+<p align="center">
+  <img src="images/ros_nodes.png" width="80%">
+</p>
+
 ### 🧩 System Overview
 
 **Core ROS Nodes**
@@ -616,6 +620,10 @@ This launches an interactive episode editor window.
 ---
 
 ### 🎛 Interactive Episode Cutter Controls
+
+<p align="center">
+  <img src="images/gui.png" width="80%">
+</p>
 
 | Key       | Action                    |
 | --------- | ------------------------- |
