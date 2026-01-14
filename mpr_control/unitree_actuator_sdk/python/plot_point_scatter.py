@@ -178,7 +178,7 @@ def main():
     # 4. Plotting
     fig, axes = plt.subplots(2, 2, figsize=(3.5, 3.5), constrained_layout=True)
     flat_axes = axes.flatten()
-    fig.suptitle('Repeatability Metrics (XY View)', fontsize=9)
+    fig.suptitle('Repeatability Metrics (XY View - 10 Cycles)', fontsize=9)
 
     for i, ax in enumerate(flat_axes):
         if i < len(unique_labels):
