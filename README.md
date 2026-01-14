@@ -145,7 +145,7 @@ Where:
   ]
 
 <p align="center">
-  <img src="images/kinematics.png" width="50%">
+  <img src="images/kinematics.png" width="20%">
 </p>
 
 ---
@@ -276,6 +276,12 @@ python velocity_teleop.py             # Velocity control demo
   <img src="videos/motor.gif" width="35%">
 </p>
 
+### Repeatability Test
+
+<p align="center">
+  <img src="videos/repeatability-ezgif.com-video-to-gif-converter.gif" width="80%">
+</p>
+
 ---
 
 ## 3️⃣ MuJoCo Simulation
@@ -344,12 +350,6 @@ python teleop_fk.py     # Joint-space teleoperation
 ---
 
 ## 4️⃣ ROS Interface, Hardware Bringup, and Rosbag Collection
-
-
-<p align="center">
-  <img src="images/ros_nodes.png" width="80%">
-</p>
-
 
 The ROS stack provides a unified interface for **real‑robot control, calibration, teleoperation, MuJoCo synchronization, and dataset recording**.
 It bridges the Unitree actuator hardware, RealSense RGB‑D sensing, and the MuJoCo digital twin into a single synchronized pipeline.
@@ -616,11 +616,6 @@ This launches an interactive episode editor window.
 ---
 
 ### 🎛 Interactive Episode Cutter Controls
-
-
-<p align="center">
-  <img src="images/gui.png" width="60%">
-</p>
 
 | Key       | Action                    |
 | --------- | ------------------------- |
