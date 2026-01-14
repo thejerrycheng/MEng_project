@@ -20,18 +20,16 @@ REAL_JOINT_NAMES = [
 
 CALIB_JOINT_NAMES = [
     "joint_1", "joint_2", "joint_3",
-    "joint_4", "wrist_pitch", "wrist_roll"
+    "joint_4", "joint_5", "joint_6"
 ]
 
-# --- Differential Kinematics Constants ---
+# --- Differential Kinematics Constants (MATCHING VISUALIZER) ---
 WRIST_PITCH_SIGN = -1.0
 WRIST_ROLL_SIGN  = -1.0
 
-# --- HOME OFFSETS (Tune these if flipped) ---
-# If the gripper is rotated 180 deg around its axis (upside down), change ROLL to np.pi
-ROLL_HOME_OFFSET = 0.0  
-
-# If the wrist is pointing DOWN/BACKWARDS instead of UP, change PITCH to np.pi
+# --- HOME OFFSETS (MATCHING VISUALIZER) ---
+# The visualizer uses +PI for the roll alignment
+ROLL_HOME_OFFSET = np.pi   
 PITCH_HOME_OFFSET = 0.0 
 
 # ==================================================
@@ -56,8 +54,7 @@ class JointCalibrator:
 
         rospy.loginfo("--------------------------------------------------")
         rospy.loginfo(f"Publishing to: {TOPIC_NAME}")
-        rospy.loginfo(f"Roll Offset:  {ROLL_HOME_OFFSET}")
-        rospy.loginfo(f"Pitch Offset: {PITCH_HOME_OFFSET}")
+        rospy.loginfo(f"Roll Offset:  {ROLL_HOME_OFFSET:.4f}")
         rospy.loginfo("--------------------------------------------------")
 
     def cb(self, msg):
@@ -76,17 +73,8 @@ class JointCalibrator:
         q_out[1] = q_zeroed["joint_2"]
         q_out[2] = q_zeroed["joint_3"]
         q_out[3] = q_zeroed["joint_4"]
-
-        # 3. Differential Wrist Math
-        q5 = q_zeroed["joint_5"]
-        q6 = q_zeroed["joint_6"]
-
-        # Calculate Pitch and Roll with added HOME OFFSETS
-        wrist_pitch = (WRIST_PITCH_SIGN * 0.5 * (q5 - q6)) + PITCH_HOME_OFFSET
-        wrist_roll  = (WRIST_ROLL_SIGN  * 0.5 * (q5 + q6)) + ROLL_HOME_OFFSET
-
-        q_out[4] = wrist_pitch
-        q_out[5] = wrist_roll
+        q_out[4] = q_zeroed["joint_5"]
+        q_out[5] = q_zeroed["joint_6"]
 
         # 4. Publish
         out_msg = JointState()
@@ -96,10 +84,6 @@ class JointCalibrator:
         out_msg.position = q_out.tolist()
         
         self.pub.publish(out_msg)
-
-        # Debug print (throttle to every 2 seconds roughly)
-        # if rospy.get_time() % 2 < 0.1:
-        #    print(f"P: {wrist_pitch:.2f} | R: {wrist_roll:.2f}")
 
 if __name__ == "__main__":
     JointCalibrator()

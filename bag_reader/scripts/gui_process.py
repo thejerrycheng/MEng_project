@@ -304,7 +304,7 @@ def main():
 
     rgb_topic = "/camera/color/image_raw"
     depth_topic = "/camera/depth/image_rect_raw"
-    joint_topic = "/joint_states"
+    joint_topic = "/joint_states_calibrated"
 
     print("Loading RGB...")
     rgb, rgb_ts = read_images_from_rosbag(bag_file, rgb_topic)

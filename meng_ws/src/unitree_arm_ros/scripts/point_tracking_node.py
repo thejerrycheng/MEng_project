@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import os
 import sys
-import yaml
-import time
 import numpy as np
 import rospy
 import mujoco
@@ -12,60 +10,57 @@ from sensor_msgs.msg import JointState
 # ==================================================
 # Configuration
 # ==================================================
-# Robot & Simulation Paths
 MUJOCO_SIM_DIR = "/home/jerry/Desktop/MEng_project/mujoco_sim"
 ASSETS_DIR = os.path.join(MUJOCO_SIM_DIR, "assets")
 XML_PATH = os.path.join(ASSETS_DIR, "iris.xml")
-CALIB_PATH = "/home/jerry/Desktop/MEng_project/meng_ws/src/unitree_arm_ros/config/calibration.yaml"
 
-# ROS / Hardware Config
+# Topics
+TOPIC_SUB = "/joint_states_calibrated"
+TOPIC_PUB = "/joint_commands_calibrated"
+
 JOINT_NAMES = ["joint_1","joint_2","joint_3","joint_4","joint_5","joint_6"]
 NUM_JOINTS = 6
 EE_BODY_NAME = "ee_mount"
-RATE_HZ = 200  # Control loop frequency
+RATE_HZ = 200  
 DT = 1.0 / RATE_HZ
 
-# Trajectory Parameters
+# Trajectory Settings
 LINEAR_VELOCITY = 0.08    # m/s
 ANGULAR_VELOCITY = 0.3    # rad/s
-ARRIVAL_TOLERANCE = 0.005 # 5mm tolerance to switch to next waypoint
+ARRIVAL_TOLERANCE = 0.01  # 1cm
 IK_DAMPING = 1e-4
 
-# Joint Limits (Deg) - Used for safety clamping
+# Joint Limits
 JOINT_LIMITS_DEG = [(-170,170),(-170,170),(-150,150),(-180,180),(-100,100),(-360,360)]
 
-# Waypoints: [X, Y, Z, Roll, Pitch, Yaw] (in World Frame)
+# Waypoints [X, Y, Z, Roll, Pitch, Yaw]
 WAYPOINTS = [
-    [0.4, 0.2, 0.4, 0.0, 0.0, 0.0],
-    [0.2,  0.1, 0.5, 1.57, 0.0, 0.0],
-    [0.4,  0.3, 0.3, 0.0, 1.57, 0.0],
-    [0.3,  0.0, 0.6, 0.0, 0.0, 1.57],
+    [0.0, 0.3, 0.5, 0.0, 0.0, 0.0],       # Start High
+    [-0.2, 0.3, 0.4, 1.57, 0.0, 0.0],     # Right
+    [0.2,  0.3, 0.4, 0.0, 0.7, 0.0],      # Left + Pitch
+    [0.0,  0.4, 0.35, 0.0, 0.0, 0.0],     # Forward Low
 ]
 
 # ==================================================
 # Helpers
 # ==================================================
-def load_calibration(path):
-    with open(path,"r") as f:
-        return yaml.safe_load(f)["joint_offsets"]
-
 def clamp_qpos(qpos):
     limit_min = np.deg2rad([l[0] for l in JOINT_LIMITS_DEG])
     limit_max = np.deg2rad([l[1] for l in JOINT_LIMITS_DEG])
     return np.clip(qpos, limit_min, limit_max)
 
 # ==================================================
-# Main Node Class
+# Main Node
 # ==================================================
 class TrackPointNode:
     def __init__(self):
         rospy.init_node("track_point_node")
         
-        # --- ROS Setup ---
-        self.cmd_pub = rospy.Publisher("/arm/command", JointState, queue_size=1)
-        self.state_sub = rospy.Subscriber("/joint_states", JointState, self.state_cb, queue_size=1)
+        # ROS
+        self.cmd_pub = rospy.Publisher(TOPIC_PUB, JointState, queue_size=1)
+        self.state_sub = rospy.Subscriber(TOPIC_SUB, JointState, self.state_cb, queue_size=1)
         
-        # --- MuJoCo Setup ---
+        # MuJoCo
         if not os.path.exists(XML_PATH):
             rospy.logerr(f"XML not found at {XML_PATH}")
             sys.exit(1)
@@ -74,67 +69,43 @@ class TrackPointNode:
         self.data  = mujoco.MjData(self.model)
         self.ee_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, EE_BODY_NAME)
 
-        # --- State Management ---
-        self.offsets = load_calibration(CALIB_PATH)
+        # State
         self.state_ready = False
         self.mission_complete = False
-        
-        # --- Path Planning State ---
         self.waypoint_idx = 0
         
-        # "Current Target" - The virtual point we are dragging the robot towards
-        # Initially None, will be set to robot's actual position on startup
+        # Targets
         self.curr_target_pos = None 
         self.curr_target_quat = None 
 
-        rospy.loginfo("Waiting for robot joint states to initialize...")
+        rospy.loginfo("Waiting for /joint_states_calibrated...")
 
     def state_cb(self, msg):
-        """
-        Initialize the simulation EXACTLY where the real robot is.
-        This runs only once at startup.
-        """
-        if self.state_ready:
-            return
+        """Sync Sim to Reality ONCE at startup"""
+        if self.state_ready: return
 
         name_to_idx = {n:i for i,n in enumerate(msg.name)}
-        q_robot = np.zeros(NUM_JOINTS)
+        q_start = np.zeros(NUM_JOINTS)
         
-        # check if all joints present
-        for j in JOINT_NAMES:
+        for i,j in enumerate(JOINT_NAMES):
             if j not in name_to_idx: return
+            q_start[i] = msg.position[name_to_idx[j]]
 
-        # Read Real Robot Joints
-        for i,j in enumerate(JOINT_NAMES):
-            q_robot[i] = msg.position[name_to_idx[j]]
-
-        # Apply Calibration (Real -> Sim)
-        q_mujoco = np.zeros(NUM_JOINTS)
-        for i,j in enumerate(JOINT_NAMES):
-            q_mujoco[i] = q_robot[i] - self.offsets.get(j, 0.0)
-
-        # Update MuJoCo
-        self.data.qpos[:NUM_JOINTS] = clamp_qpos(q_mujoco)
+        # Set Sim State
+        self.data.qpos[:NUM_JOINTS] = clamp_qpos(q_start)
         mujoco.mj_forward(self.model, self.data)
 
-        # Initialize Virtual Target at Current EE Pose
-        # This prevents the robot from jumping; it will interpolate from here to WP[0]
+        # Initialize Virtual Target at Current Real EE
         self.curr_target_pos = self.data.body(self.ee_id).xpos.copy()
         self.curr_target_quat = np.zeros(4)
         mujoco.mju_mat2Quat(self.curr_target_quat, self.data.body(self.ee_id).xmat)
 
-        # Send 'Hold' Command to hardware to lock servos
         self.publish_command()
-        
         self.state_ready = True
-        rospy.loginfo("Initialized! Starting Trajectory Tracking...")
+        rospy.loginfo(f"Initialized. Moving to WP 1/{len(WAYPOINTS)}...")
 
     def publish_command(self):
-        """Send Sim state + Calibration Offsets -> Real Robot"""
-        q_cmd = np.zeros(NUM_JOINTS)
-        for i,j in enumerate(JOINT_NAMES):
-            q_cmd[i] = self.data.qpos[i] + self.offsets.get(j, 0.0)
-
+        q_cmd = self.data.qpos[:NUM_JOINTS]
         msg = JointState()
         msg.header.stamp = rospy.Time.now()
         msg.name = JOINT_NAMES
@@ -142,14 +113,12 @@ class TrackPointNode:
         self.cmd_pub.publish(msg)
 
     def solve_ik(self):
-        """Jacobian Damped Least Squares to follow self.curr_target_pos/quat"""
+        """Standard Jacobian IK to follow curr_target_pos"""
         curr_pos = self.data.body(self.ee_id).xpos
         curr_mat = self.data.body(self.ee_id).xmat.reshape(3, 3)
         
-        # Position Error
         pos_err = self.curr_target_pos - curr_pos
         
-        # Orientation Error
         target_mat = np.zeros(9)
         mujoco.mju_quat2Mat(target_mat, self.curr_target_quat)
         target_mat = target_mat.reshape(3,3)
@@ -157,38 +126,31 @@ class TrackPointNode:
         rot_err_mat = target_mat @ curr_mat.T
         rot_err_quat = np.zeros(4)
         mujoco.mju_mat2Quat(rot_err_quat, rot_err_mat.flatten())
-        
-        # Rotation vector (axis * angle)
         rot_err_vec = rot_err_quat[1:] * np.sign(rot_err_quat[0])
 
-        # Jacobian
         jacp = np.zeros((3, self.model.nv))
         jacr = np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.ee_id)
         J = np.vstack([jacp, jacr])[:, :NUM_JOINTS]
         
         error = np.concatenate([pos_err, rot_err_vec])
-        
-        # DLS Solve
         dq = J.T @ np.linalg.solve(J @ J.T + IK_DAMPING * np.eye(6), error)
         
-        # Update Simulation State (Full step 1.0 because we are tracking a smooth interpolation)
         self.data.qpos[:NUM_JOINTS] += dq
         self.data.qpos[:NUM_JOINTS] = clamp_qpos(self.data.qpos[:NUM_JOINTS])
 
     def update_trajectory(self):
-        """Interpolates virtual target towards the current waypoint"""
+        """Interpolate Green Sphere towards Red Sphere"""
         if self.mission_complete or self.waypoint_idx >= len(WAYPOINTS):
             self.mission_complete = True
             return
 
-        # Get Goal Waypoint
         wp = WAYPOINTS[self.waypoint_idx]
         dest_pos = np.array(wp[:3])
         dest_quat = np.zeros(4)
         mujoco.mju_euler2Quat(dest_quat, wp[3:], 'xyz')
 
-        # 1. Linear Interpolation
+        # Linear Interp
         pos_diff = dest_pos - self.curr_target_pos
         dist = np.linalg.norm(pos_diff)
         
@@ -196,7 +158,7 @@ class TrackPointNode:
             step = min(dist, LINEAR_VELOCITY * DT)
             self.curr_target_pos += (pos_diff / dist) * step
             
-        # 2. Spherical Interpolation (Angular Velocity limit)
+        # Spherical Interp
         q_inv = np.zeros(4)
         mujoco.mju_negQuat(q_inv, self.curr_target_quat)
         q_diff = np.zeros(4)
@@ -207,55 +169,74 @@ class TrackPointNode:
         vel_norm = np.linalg.norm(vel_vec)
         
         if vel_norm > 1e-4:
-            # Integrate with constant angular velocity cap
             step_vel = (vel_vec / vel_norm) * min(vel_norm, ANGULAR_VELOCITY)
             mujoco.mju_quatIntegrate(self.curr_target_quat, step_vel, DT)
-            # Normalize to prevent drift
             mujoco.mju_normalize4(self.curr_target_quat)
 
-        # 3. Check Arrival
         if dist < ARRIVAL_TOLERANCE and vel_norm < 0.1:
-            rospy.loginfo(f"Reached Waypoint {self.waypoint_idx}")
             self.waypoint_idx += 1
 
     def run(self):
         rate = rospy.Rate(RATE_HZ)
         
-        # Launch Visualizer
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
             while not rospy.is_shutdown() and viewer.is_running():
-                
-                # Wait for initial robot state
                 if not self.state_ready:
                     rate.sleep()
                     continue
 
-                # Control Logic
-                self.update_trajectory()
-                self.solve_ik() # Move Sim Robot
-                mujoco.mj_step(self.model, self.data) # Physics Step
-                self.publish_command() # Send to Real Robot
+                if self.mission_complete:
+                    self.publish_command()
+                else:
+                    self.update_trajectory()
+                    self.solve_ik()
+                    mujoco.mj_step(self.model, self.data)
+                    self.publish_command()
 
-                # Visualization Sync
+                # --- VISUALIZATION MARKERS ---
+                # 1. Reset Scene Markers
+                viewer.user_scn.ngeom = 0
+                
+                # 2. Draw Active Goal Waypoint (RED)
+                if self.waypoint_idx < len(WAYPOINTS):
+                    wp = WAYPOINTS[self.waypoint_idx]
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                        size=[0.02, 0, 0],
+                        pos=np.array(wp[:3]),
+                        mat=np.eye(3).flatten(),
+                        rgba=[1, 0, 0, 0.6] # Red (Current Goal)
+                    )
+                    viewer.user_scn.ngeom += 1
+
+                # 3. Draw Active Virtual Target (GREEN)
+                if self.curr_target_pos is not None:
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                        size=[0.015, 0, 0],
+                        pos=self.curr_target_pos,
+                        mat=np.eye(3).flatten(),
+                        rgba=[0, 1, 0, 1] # Green (Current Path)
+                    )
+                    viewer.user_scn.ngeom += 1
+                # -----------------------------
+
                 viewer.sync()
                 
                 # Dashboard
-                if self.waypoint_idx < len(WAYPOINTS):
+                if not self.mission_complete:
                     curr_real_pos = self.data.body(self.ee_id).xpos
                     goal_pos = WAYPOINTS[self.waypoint_idx][:3]
                     dist_remain = np.linalg.norm(curr_real_pos - goal_pos)
-                    
-                    sys.stdout.write("\r\033[K") # Clear line
-                    print(f"Tracking WP {self.waypoint_idx}/{len(WAYPOINTS)} | Dist: {dist_remain:.4f}m", end="", flush=True)
-                elif self.mission_complete:
-                     sys.stdout.write("\r\033[K")
-                     print("Mission Complete.", end="", flush=True)
+                    sys.stdout.write("\r\033[K") 
+                    print(f"WP {self.waypoint_idx+1}/{len(WAYPOINTS)} | Dist: {dist_remain:.3f}m", end="", flush=True)
 
                 rate.sleep()
 
 if __name__ == "__main__":
     try:
-        node = TrackPointNode()
-        node.run()
+        TrackPointNode().run()
     except rospy.ROSInterruptException:
         pass

@@ -87,6 +87,7 @@ rosbag record \
   -O "$FINAL_NAME" \
   /arm/command \
   /joint_states \
+  /joint_states_calibrated \
   /tf \
   /tf_static \
   /camera/color/image_raw \

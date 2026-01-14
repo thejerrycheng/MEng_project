@@ -43,9 +43,9 @@ TARGET_LPF_ALPHA = 0.08
 # Joint impedance gains
 IMPEDANCE = {
     0: {"kp": 0.4, "kd": 0.03},
-    1: {"kp": 1.2, "kd": 0.06},
-    2: {"kp": 1.2, "kd": 0.06},
-    3: {"kp": 0.8, "kd": 0.05},
+    1: {"kp": 3.5, "kd": 0.15},
+    2: {"kp": 1.5, "kd": 0.06},
+    3: {"kp": 1.0, "kd": 0.05},
     4: {"kp": 0.6, "kd": 0.03},
     5: {"kp": 0.6, "kd": 0.03},
 }
@@ -71,12 +71,12 @@ class UnitreeArmHW:
 
         # ROS I/O
         self.state_pub = rospy.Publisher("/joint_states", JointState, queue_size=1)
-        rospy.Subscriber("/arm/command", JointState, self.command_cb, queue_size=1)
+        rospy.Subscriber("/joint_commands", JointState, self.command_cb, queue_size=1)
 
         rospy.loginfo("==============================================")
         rospy.loginfo(" Unitree Arm Hardware Node")
         rospy.loginfo(" Publishes : /joint_states")
-        rospy.loginfo(" Subscribes: /arm/command")
+        rospy.loginfo(" Subscribes: /joint_commands")
         rospy.loginfo(" Control Rate: %d Hz", CONTROL_RATE)
         rospy.loginfo("==============================================")
 
