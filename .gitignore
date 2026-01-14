@@ -11,6 +11,15 @@ dist/
 .env
 .venv/
 venv/
+.ipynb_checkpoints/
+*.egg
+
+# ========================================
+# ML Logging (Common freeze culprit)
+# ========================================
+wandb/
+runs/
+.cache/
 
 # ========================================
 # OS junk
@@ -21,6 +30,11 @@ Thumbs.db
 # ========================================
 # ROS build artifacts
 # ========================================
+# Ignore build/devel in any subdirectory to be safe
+**/build/
+**/devel/
+**/log/
+# Specific workspace ignores
 meng_ws/build/
 meng_ws/devel/
 meng_ws/log/
@@ -48,27 +62,21 @@ meng_ws/src/il_training/saved_clips/
 meng_ws/src/il_training/processed_dataset/
 
 # ========================================
-# bag_reader collected sensor dumps only
-# (keep code, ignore collected outputs)
+# bag_reader collected sensor dumps
 # ========================================
-meng_ws/src/bag_reader/scripts/rgb_data/
-meng_ws/src/bag_reader/scripts/depth_data/
-meng_ws/src/bag_reader/scripts/robot_data/
-meng_ws/src/bag_reader/scripts/saved_clips/
+# Using wildcard to catch these folders even if moved slightly
+**/rgb_data/
+**/depth_data/
+**/robot_data/
+**/saved_clips/
 
 # ========================================
-# Ignore generated images in dataset folders
+# Ignore generated images everywhere
 # ========================================
-processed_data/**/*.png
-processed_data/**/*.jpg
-processed_data/**/*.jpeg
-
-raw_data/**/*.png
-raw_data/**/*.jpg
-raw_data/**/*.jpeg
-
-meng_ws/src/bag_reader/scripts/rgb_data/**/*.png
-meng_ws/src/bag_reader/scripts/depth_data/**/*.png
+*.png
+*.jpg
+*.jpeg
+*.gif
 
 # ========================================
 # Training outputs / models
@@ -80,32 +88,39 @@ plots/
 *.onnx
 
 # ========================================
-# Media folders for large raw videos
+# Media folders
 # ========================================
-# Ignore large raw video formats only (but allow gifs)
-videos/**/*.mp4
-videos/**/*.mov
-videos/**/*.avi
-videos/**/*.mkv
+videos/
+*.mp4
+*.mov
+*.avi
+*.mkv
 
+# ========================================
+# EXCEPTIONS (Allow these specific files)
+# ========================================
 
-# ========================================
-# Allow documentation and paper images
-# ========================================
+# 1. Allow images/videos ONLY in docs/media
+!docs/media/
 !docs/media/**/*.png
 !docs/media/**/*.jpg
 !docs/media/**/*.gif
 !docs/media/**/*.mp4
 
+# 2. Allow images in paper folder
+!paper/
 !paper/**/*.png
 !paper/**/*.jpg
 !paper/**/*.jpeg
 !paper/**/*.pdf
 
-# ========================================
-# Keep JSON calibration / config files
-# ========================================
+# 3. Allow JSONs (Safely)
+# Re-ignore JSONs generally to prevent !*.json from scanning random folders
+*.json
+# Only allow JSONs in specific config locations or root
 !*.json
+!config/*.json
+!meng_ws/src/**/config/*.json
 
 # ========================================
 # Logs / temp
