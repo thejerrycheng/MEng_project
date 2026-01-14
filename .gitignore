@@ -6,16 +6,16 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
+*.egg
 build/
 dist/
 .env
 .venv/
 venv/
 .ipynb_checkpoints/
-*.egg
 
 # ========================================
-# ML Logging (Common freeze culprit)
+# ML Logging (common freeze culprits)
 # ========================================
 wandb/
 runs/
@@ -30,14 +30,9 @@ Thumbs.db
 # ========================================
 # ROS build artifacts
 # ========================================
-# Ignore build/devel in any subdirectory to be safe
 **/build/
 **/devel/
 **/log/
-# Specific workspace ignores
-meng_ws/build/
-meng_ws/devel/
-meng_ws/log/
 
 # ========================================
 # MuJoCo runtime cache
@@ -46,17 +41,15 @@ mujoco_sim/.mujoco/
 *.mjl
 
 # ========================================
-# Large datasets (global)
+# Large datasets
 # ========================================
 raw_data/
 rosbag_data/
 processed_data/
-
-# Ignore rosbag files anywhere
 *.bag
 
 # ========================================
-# IL-generated datasets inside workspace
+# IL-generated datasets
 # ========================================
 meng_ws/src/il_training/saved_clips/
 meng_ws/src/il_training/processed_dataset/
@@ -64,19 +57,10 @@ meng_ws/src/il_training/processed_dataset/
 # ========================================
 # bag_reader collected sensor dumps
 # ========================================
-# Using wildcard to catch these folders even if moved slightly
 **/rgb_data/
 **/depth_data/
 **/robot_data/
 **/saved_clips/
-
-# ========================================
-# Ignore generated images everywhere
-# ========================================
-*.png
-*.jpg
-*.jpeg
-*.gif
 
 # ========================================
 # Training outputs / models
@@ -88,42 +72,48 @@ plots/
 *.onnx
 
 # ========================================
-# Media folders
+# Ignore generated media everywhere
 # ========================================
-videos/
+*.png
+*.jpg
+*.jpeg
+*.gif
 *.mp4
 *.mov
 *.avi
 *.mkv
 
 # ========================================
-# EXCEPTIONS (Allow these specific files)
+# Allow media folders explicitly
 # ========================================
+!images/
+!images/**
 
-# 1. Allow images/videos ONLY in docs/media
+!videos/
+!videos/**
+
+# ========================================
+# Docs & paper allowed media
+# ========================================
 !docs/media/
-!docs/media/**/*.png
-!docs/media/**/*.jpg
-!docs/media/**/*.gif
-!docs/media/**/*.mp4
+!docs/media/**
 
-# 2. Allow images in paper folder
 !paper/
-!paper/**/*.png
-!paper/**/*.jpg
-!paper/**/*.jpeg
-!paper/**/*.pdf
+!paper/**
 
-# 3. Allow JSONs (Safely)
-# Re-ignore JSONs generally to prevent !*.json from scanning random folders
+# ========================================
+# JSON handling (safe + predictable)
+# ========================================
+# Ignore JSON by default
 *.json
-# Only allow JSONs in specific config locations or root
-!*.json
+
+# Allow root-level config JSONs
+!/*.json
 !config/*.json
 !meng_ws/src/**/config/*.json
 
 # ========================================
-# Logs / temp
+# Logs / temp files
 # ========================================
 *.log
 *.tmp
