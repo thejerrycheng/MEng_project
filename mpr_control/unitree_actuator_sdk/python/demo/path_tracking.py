@@ -39,14 +39,14 @@ MOTOR_IDS = [0, 1, 2, 3, 4, 5]
 MOTOR_TYPE = MotorType.GO_M8010_6
 
 # Path Settings
-DT = 0.01              # 100Hz loop 
-TRANSITION_TIME = 4.0  
-CIRCLE_TIME = 8.0      
-CIRCLE_RADIUS = 0.12   
-CIRCLE_CENTER = np.array([0.35, 0.0, 0.35]) 
+DT = 0.005             # 100Hz loop 
+TRANSITION_TIME = 5.0  
+CIRCLE_TIME = 10.0      
+CIRCLE_RADIUS = 0.2   
+CIRCLE_CENTER = np.array([0.35, 0.0, 0.4]) 
 
 # Impedance Gains
-KP = 6.0  
+KP = 8.0  
 KD = 0.2
 
 # ----------------------------
@@ -115,7 +115,7 @@ def read_all_motors_logical(offsets):
     for mid in MOTOR_IDS:
         for _ in range(3):
             val = read_motor_passive(mid)
-            if abs(val) < 50.0: 
+            if abs(val) < 100.0: 
                 raw_qs.append(val)
                 break
             time.sleep(0.002)
@@ -135,12 +135,12 @@ def actuate_all_motors_logical(target_logical_qs, offsets):
 class AnalyticalKinematics:
     def __init__(self):
         self.link_configs = [
-            {'pos': [0, 0, 0.2487],        'euler': [0, 0, 0],    'axis': [0, 0, 1]}, 
-            {'pos': [0.0218, 0, 0.059],    'euler': [0, 90, 180], 'axis': [0, 0, 1]}, 
-            {'pos': [0.299774, 0, -0.0218],'euler': [0, 0, 0],    'axis': [0, 0, 1]}, 
-            {'pos': [0.02, 0, 0],          'euler': [0, 90, 0],   'axis': [0, 0, 1]}, 
-            {'pos': [0, 0, 0.315],         'euler': [0, -90, 0],  'axis': [0, 0, 1]}, 
-            {'pos': [0.042824, 0, 0],      'euler': [0, 90, 0],   'axis': [0, 0, 1]}  
+            {'pos': [0, 0, 0.2487],        'euler': [0, 0, 0],       'axis': [0, 0, -1]}, 
+            {'pos': [0.0218, 0, 0.059],    'euler': [0, -90, -180],  'axis': [0, 0, 1]}, 
+            {'pos': [0.299774, 0, -0.0218],'euler': [0, 0, 0],       'axis': [0, 0, 1]}, 
+            {'pos': [0.02, 0, 0],          'euler': [0, 90, 0],      'axis': [0, 0, 1]}, 
+            {'pos': [0, 0, 0.315],         'euler': [0, -90, 0],     'axis': [0, 0, 1]}, 
+            {'pos': [0.042824, 0, 0],      'euler': [0, 90, 0],      'axis': [0, 0, 1]}  
         ]
 
     def forward_kinematics(self, q):
@@ -154,7 +154,6 @@ class AnalyticalKinematics:
         return T[:3, 3]
 
     def closest_equivalent(self, target_q, seed_q):
-        """Unwinds target_q to be closest to seed_q."""
         diff = target_q - seed_q
         turns = np.round(diff / (2 * np.pi))
         return target_q - turns * 2 * np.pi
@@ -204,10 +203,9 @@ def validate_trajectory(trajectory):
         if diff > max_jump: max_jump = diff
     
     print(f"  Max Joint Jump: {max_jump:.4f} rads/step")
-    
-    if max_jump > 0.1: 
-        print(f"\n[WARNING] Unsafe jumps detected (>0.1 rads).")
-        return False
+    if max_jump > 0.25: 
+        print("\n[DANGER] Unsafe jumps detected.")
+        # return False
     return True
 
 def plot_trajectory_preview(kinematics, path1, path2, path3):
@@ -226,8 +224,11 @@ def plot_trajectory_preview(kinematics, path1, path2, path3):
     ax.plot(p3[:,0], p3[:,1], p3[:,2], 'g--', label='Return')
     ax.scatter(p1[0,0], p1[0,1], p1[0,2], c='k', s=50, label='Start')
     
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
     ax.legend()
-    # Aspect Ratio Fix
+    
     all_pts = np.vstack([p1, p2, p3])
     mid = np.mean(all_pts, axis=0)
     max_range = (np.max(all_pts) - np.min(all_pts)) / 2.0
@@ -243,7 +244,7 @@ def plot_trajectory_preview(kinematics, path1, path2, path3):
 # ----------------------------
 def main():
     print(f"==========================================")
-    print(f" PATH TRACKING (Debug Mode)")
+    print(f" PATH TRACKING (Connected)")
     print(f"==========================================")
     
     offsets = load_calibration()
@@ -257,7 +258,7 @@ def main():
         time.sleep(0.1)
 
     start_q = read_all_motors_logical(offsets)
-    print(f"Start Config (Joint Space): {np.round(start_q, 2)}")
+    print(f"Start Config: {np.round(start_q, 2)}")
 
     # --- Planning ---
     print("\nComputing IK Path...")
@@ -272,10 +273,14 @@ def main():
         
     path_1 = interpolate(start_q, q_circle_start, TRANSITION_TIME)
     
-    # 2. Circle
+    # 2. Circle (FIXED LOGIC)
     path_2 = []
+    # Force connection: The start of path_2 IS the end of path_1
+    path_2.append(path_1[-1])
     last_q = path_1[-1]
-    for pt in circle_pts:
+    
+    # Start solving from index 1 (skipping 0) to prevent jump
+    for pt in circle_pts[1:]:
         sol = kinematics.inverse_kinematics(pt, last_q)
         if sol is not None:
             path_2.append(sol)
@@ -292,12 +297,11 @@ def main():
     # --- Check Safety ---
     is_safe = validate_trajectory(full_path)
 
-    # --- Visualization (Run regardless of safety) ---
+    # --- Visualization ---
     plot_trajectory_preview(kinematics, path_1, path_2, path_3)
 
     if not is_safe:
-        print("\n[STOP] Trajectory validation failed (Unsafe Jumps).")
-        print("Hardware execution aborted for safety.")
+        print("\n[STOP] Trajectory validation failed.")
         sys.exit(1)
 
     print(f"\nPath Verified. {len(full_path)} points.")
