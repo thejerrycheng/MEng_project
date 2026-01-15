@@ -11,8 +11,9 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-# Import Modules
+# Import both models
 from models.transformer_model import ACT_RGB
+from models.cnn_model import VanillaBC
 from datasets.iris_dataset import EpisodeWindowDataset
 from losses.loss import ACTLoss
 
@@ -24,6 +25,12 @@ logging.basicConfig(
     level=logging.INFO,
     handlers=[logging.StreamHandler()]
 )
+
+def count_parameters(model):
+    """Counts trainable parameters."""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total_params, trainable_params
 
 def save_plots(history, plots_dir, name):
     plt.figure(figsize=(10, 5))
@@ -42,17 +49,26 @@ def main():
     parser.add_argument("--data_dir", type=str, default="processed_data", help="Dir containing .pkl files")
     parser.add_argument("--name", type=str, required=True, help="Experiment Name")
     
+    # Model Selection
+    parser.add_argument("--model", type=str, required=True, choices=['transformer', 'cnn'], 
+                        help="Choose architecture: 'transformer' (ACT) or 'cnn' (Vanilla BC)")
+
     # Hyperparams
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--num_workers", type=int, default=4)
     
-    # Model Params
+    # Common Model Params
     parser.add_argument("--seq_len", type=int, default=8)
     parser.add_argument("--future_steps", type=int, default=15)
+    
+    # Transformer Specific
     parser.add_argument("--d_model", type=int, default=256)
     parser.add_argument("--nhead", type=int, default=8)
+    
+    # CNN Specific
+    parser.add_argument("--hidden_dim", type=int, default=1024)
     
     args = parser.parse_args()
 
@@ -62,14 +78,13 @@ def main():
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(plots_dir, exist_ok=True)
 
-    # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
 
     # ---------------------
     # Data Loading
     # ---------------------
-    logging.info("Loading Datasets...")
+    logging.info(f"Loading Datasets for Model: {args.model.upper()}...")
     train_pkl = os.path.join(args.data_dir, "train_episodes.pkl")
     val_pkl = os.path.join(args.data_dir, "val_episodes.pkl")
 
@@ -81,20 +96,34 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, 
                             num_workers=args.num_workers, pin_memory=True)
 
-    logging.info(f"Train samples: {len(train_ds)} | Val samples: {len(val_ds)}")
-
     # ---------------------
-    # Model & Optimization
+    # Model Instantiation
     # ---------------------
-    model = ACT_RGB(
-        seq_len=args.seq_len,
-        future_steps=args.future_steps,
-        d_model=args.d_model,
-        nhead=args.nhead
-    ).to(device)
+    if args.model == 'transformer':
+        logging.info("Initializing Transformer (ACT) Model...")
+        model = ACT_RGB(
+            seq_len=args.seq_len,
+            future_steps=args.future_steps,
+            d_model=args.d_model,
+            nhead=args.nhead
+        ).to(device)
+        
+    elif args.model == 'cnn':
+        logging.info("Initializing Vanilla CNN (BC) Model...")
+        model = VanillaBC(
+            seq_len=args.seq_len,
+            future_steps=args.future_steps,
+            hidden_dim=args.hidden_dim,
+            freeze_backbone=False 
+        ).to(device)
 
+    # Count Parameters
+    total, trainable = count_parameters(model)
+    logging.info(f"Model Parameters: {total:,} total | {trainable:,} trainable")
+
+    # Optimizer & Loss
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    criterion = ACTLoss(lambda_cont=0.05, lambda_goal=0.05)
+    criterion = ACTLoss() 
 
     # ---------------------
     # Training Loop
@@ -107,21 +136,19 @@ def main():
         model.train()
         train_loss_acc = 0
         
-        for batch_idx, (rgb, joints, goal_xyz, fut_delta, goal_joint) in enumerate(train_loader):
-            rgb = rgb.to(device)              # (B, S, 3, 128, 128)
-            joints = joints.to(device)        # (B, S, 6)
-            goal_xyz = goal_xyz.to(device)    # (B, 3)
-            fut_delta = fut_delta.to(device)  # (B, F, 6)
-            goal_joint = goal_joint.to(device)# (B, 6)
-
+        for batch_idx, (rgb, joints, goal_delta, fut_delta, goal_joint_abs) in enumerate(train_loader):
+            rgb = rgb.to(device)
+            joints = joints.to(device)
+            goal_delta = goal_delta.to(device)
+            fut_delta = fut_delta.to(device)
+            
             optimizer.zero_grad()
             
-            # Forward
-            pred_delta = model(rgb, joints, goal_xyz)
+            # Forward pass is identical for both models
+            # (rgb, joint, goal) -> action_delta
+            pred_delta = model(rgb, joints, goal_delta)
             
-            # Loss
-            curr_joint_state = joints[:, -1, :] # Last known joint config
-            loss, _ = criterion(pred_delta, fut_delta, curr_joint_state, goal_joint)
+            loss, _ = criterion(pred_delta, fut_delta)
             
             loss.backward()
             optimizer.step()
@@ -134,17 +161,14 @@ def main():
         model.eval()
         val_loss_acc = 0
         with torch.no_grad():
-            for rgb, joints, goal_xyz, fut_delta, goal_joint in val_loader:
+            for rgb, joints, goal_delta, fut_delta, goal_joint_abs in val_loader:
                 rgb = rgb.to(device)
                 joints = joints.to(device)
-                goal_xyz = goal_xyz.to(device)
+                goal_delta = goal_delta.to(device)
                 fut_delta = fut_delta.to(device)
-                goal_joint = goal_joint.to(device)
 
-                pred_delta = model(rgb, joints, goal_xyz)
-                curr_joint_state = joints[:, -1, :]
-                loss, _ = criterion(pred_delta, fut_delta, curr_joint_state, goal_joint)
-                
+                pred_delta = model(rgb, joints, goal_delta)
+                loss, _ = criterion(pred_delta, fut_delta)
                 val_loss_acc += loss.item()
 
         avg_val = val_loss_acc / len(val_loader)
@@ -157,19 +181,21 @@ def main():
 
         if avg_val < best_val_loss:
             best_val_loss = avg_val
-            torch.save(model.state_dict(), os.path.join(models_dir, f"best_{args.name}.pth"))
+            # Save using the specific model name and experiment name
+            torch.save(model.state_dict(), os.path.join(models_dir, f"best_{args.model}_{args.name}.pth"))
             logging.info("  -> Saved Best Model")
 
+    logging.info("Training Complete.")
+    
     # Save Final
-    torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.name}.pth"))
+    torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.model}_{args.name}.pth"))
     
     # Save CSV
     df = pd.DataFrame(history)
-    df.to_csv(os.path.join(plots_dir, f"history_{args.name}.csv"), index=False)
+    df.to_csv(os.path.join(plots_dir, f"history_{args.model}_{args.name}.csv"), index=False)
     
     # Plot
-    save_plots(history, plots_dir, args.name)
-    logging.info("Training Complete.")
+    save_plots(history, plots_dir, f"{args.model}_{args.name}")
 
 if __name__ == "__main__":
     main()
