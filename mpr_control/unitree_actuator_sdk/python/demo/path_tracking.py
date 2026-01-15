@@ -39,7 +39,7 @@ MOTOR_IDS = [0, 1, 2, 3, 4, 5]
 MOTOR_TYPE = MotorType.GO_M8010_6
 
 # Path Settings
-DT = 0.005             # 100Hz loop 
+DT = 0.005              # 100Hz loop 
 TRANSITION_TIME = 5.0  
 CIRCLE_TIME = 10.0      
 CIRCLE_RADIUS = 0.2   
@@ -143,6 +143,33 @@ class AnalyticalKinematics:
             {'pos': [0.042824, 0, 0],      'euler': [0, 90, 0],      'axis': [0, 0, 1]}  
         ]
 
+    def get_transform_matrix(self, config, q_val):
+        """Computes local transform T = T_static * T_joint"""
+        T_static = np.eye(4)
+        T_static[:3, 3] = config['pos']
+        r_static = R.from_euler('xyz', config['euler'], degrees=True).as_matrix()
+        T_static[:3, :3] = r_static
+        
+        r_vec = np.array(config['axis']) * q_val
+        r_joint = R.from_rotvec(r_vec).as_matrix()
+        T_joint = np.eye(4)
+        T_joint[:3, :3] = r_joint
+        
+        return T_static @ T_joint
+
+    def compute_chain_positions(self, joint_angles):
+        """Returns list of 3D positions [Base, J1, J2, J3, J4, J5, EE]"""
+        positions = [[0,0,0]] 
+        T_accum = np.eye(4)
+        
+        for i, cfg in enumerate(self.link_configs):
+            q = joint_angles[i]
+            T_local = self.get_transform_matrix(cfg, q)
+            T_accum = T_accum @ T_local
+            positions.append(T_accum[:3, 3].tolist())
+            
+        return np.array(positions)
+
     def forward_kinematics(self, q):
         T = np.eye(4)
         for i, cfg in enumerate(self.link_configs):
@@ -208,8 +235,10 @@ def validate_trajectory(trajectory):
         # return False
     return True
 
-def plot_trajectory_preview(kinematics, path1, path2, path3):
+def plot_trajectory_preview(kinematics, path1, path2, path3, start_q):
     print("\nGenerating 3D Preview...")
+    
+    # 1. Get Trajectories (End Effector Only)
     def get_xyz(path):
         return np.array([kinematics.forward_kinematics(q) for q in path])
 
@@ -217,24 +246,39 @@ def plot_trajectory_preview(kinematics, path1, path2, path3):
     p2 = get_xyz(path2)
     p3 = get_xyz(path3)
 
+    # 2. Get Robot Body at Start Config
+    robot_links = kinematics.compute_chain_positions(start_q)
+
+    # 3. Plotting
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
+    
+    # Draw Trajectories
     ax.plot(p1[:,0], p1[:,1], p1[:,2], 'b-', label='Approach')
     ax.plot(p2[:,0], p2[:,1], p2[:,2], 'r-', label='Circle', linewidth=3)
     ax.plot(p3[:,0], p3[:,1], p3[:,2], 'g--', label='Return')
-    ax.scatter(p1[0,0], p1[0,1], p1[0,2], c='k', s=50, label='Start')
     
+    # Draw Robot Body (Thick Black Lines)
+    ax.plot(robot_links[:,0], robot_links[:,1], robot_links[:,2], 
+            'o-', color='black', linewidth=5, markersize=8, label='Robot (Start)')
+    
+    # Draw Ground
+    limit = 0.8
+    xx, yy = np.meshgrid(np.linspace(-limit, limit, 2), np.linspace(-limit, limit, 2))
+    ax.plot_surface(xx, yy, np.zeros_like(xx), alpha=0.1, color='gray')
+
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     ax.legend()
     
-    all_pts = np.vstack([p1, p2, p3])
+    # Scale
+    all_pts = np.vstack([p1, p2, p3, robot_links])
     mid = np.mean(all_pts, axis=0)
     max_range = (np.max(all_pts) - np.min(all_pts)) / 2.0
     ax.set_xlim(mid[0]-max_range, mid[0]+max_range)
     ax.set_ylim(mid[1]-max_range, mid[1]+max_range)
-    ax.set_zlim(mid[2]-max_range, mid[2]+max_range)
+    ax.set_zlim(0, mid[2]+max_range) # Keep floor at z=0
     
     print(">> Close plot to continue...")
     plt.show()
@@ -298,7 +342,8 @@ def main():
     is_safe = validate_trajectory(full_path)
 
     # --- Visualization ---
-    plot_trajectory_preview(kinematics, path_1, path_2, path_3)
+    # Now passing start_q to draw the robot body
+    plot_trajectory_preview(kinematics, path_1, path_2, path_3, start_q)
 
     if not is_safe:
         print("\n[STOP] Trajectory validation failed.")

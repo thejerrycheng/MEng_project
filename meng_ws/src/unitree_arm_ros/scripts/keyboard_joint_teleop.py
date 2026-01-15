@@ -28,7 +28,7 @@ RATE_HZ = 200
 DT = 1.0 / RATE_HZ
 
 # Jog velocities (rad/s)
-VEL = np.array([1, 1, 1, 1, 1.0, 1.0])
+VEL = np.array([2, 2, 2, 2.0, 1.0, 1.0])
 
 # ==================================================
 class KeyboardJointTeleopROS:

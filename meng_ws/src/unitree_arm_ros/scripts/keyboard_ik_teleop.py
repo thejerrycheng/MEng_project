@@ -17,7 +17,7 @@ XML_PATH = os.path.join(ASSETS_DIR, "iris.xml")
 # ==================================================
 # Config
 # ==================================================
-# Topics (All External Calibration)
+# Topics
 TOPIC_SUB = "/joint_states_calibrated"
 TOPIC_PUB = "/joint_commands_calibrated"
 
@@ -35,6 +35,13 @@ EE_BODY_NAME = "ee_mount"
 
 DAMPING = 1e-4
 IK_STEP_SCALE = 0.5
+
+# --- SMOOTHING CONFIG ---
+# Alpha for Low Pass Filter (0.0 to 1.0)
+# 1.0 = No filtering (Instant)
+# 0.1 = Very smooth, some lag
+# 0.2 = Good balance for teleop
+LPF_ALPHA = 0.15 
 
 # ==================================================
 def clamp_qpos(qpos):
@@ -75,17 +82,21 @@ class MujocoIKTeleopROS:
 
         # 3. Initialization Flags & Buffers
         self.state_initialized = False
+        self.optimization_active = False # Flag to prevent IK at start
         
-        # Current Target (will be set in state_cb)
+        # Current Target
         self.target_pos = np.zeros(3)
         self.target_rpy = np.zeros(3)
 
-        # Velocity Inputs (from keyboard)
+        # Smoothing Buffer (Low Pass Filter)
+        self.q_filtered = np.zeros(NUM_JOINTS)
+
+        # Velocity Inputs
         self.cart_vel = np.zeros(3)
         self.rot_vel  = np.zeros(3)
 
         rospy.loginfo("==============================================")
-        rospy.loginfo(" MuJoCo IK Teleop (Pure External Calib)")
+        rospy.loginfo(" MuJoCo IK Teleop (Filtered + Safe Start)")
         rospy.loginfo(f" Listening: {TOPIC_SUB}")
         rospy.loginfo(f" Publishing: {TOPIC_PUB}")
         rospy.loginfo(" Status: WAITING FOR ROBOT STATE...")
@@ -94,9 +105,7 @@ class MujocoIKTeleopROS:
     # ------------------------------------------------
     def state_cb(self, msg):
         """
-        Only runs ONCE at startup.
-        Sets the MuJoCo robot to the exact same pose as the real robot,
-        then sets the IK Target to that pose so it doesn't move.
+        Runs ONCE at startup to sync simulation with real robot.
         """
         if self.state_initialized:
             return
@@ -105,43 +114,47 @@ class MujocoIKTeleopROS:
         start_q = np.zeros(NUM_JOINTS)
         
         # Extract joint values safely
-        for i, jname in enumerate(JOINT_NAMES):
-            if jname not in name_to_idx:
-                # If we don't have full state yet, wait.
-                return 
-            start_q[i] = msg.position[name_to_idx[jname]]
+        try:
+            for i, jname in enumerate(JOINT_NAMES):
+                start_q[i] = msg.position[name_to_idx[jname]]
+        except KeyError:
+            return # Wait for full message
 
         # 1. Update Internal Sim to match Reality
         self.data.qpos[:NUM_JOINTS] = clamp_qpos(start_q)
         mujoco.mj_forward(self.model, self.data)
 
-        # 2. Set IK Target to CURRENT End-Effector Pose
-        # This ensures error is 0.0 at t=0
+        # 2. Initialize Filter Buffer with current real position
+        self.q_filtered = self.data.qpos[:NUM_JOINTS].copy()
+
+        # 3. Set IK Target to CURRENT End-Effector Pose
         self.target_pos = self.data.body(self.ee_id).xpos.copy()
         curr_mat = self.data.body(self.ee_id).xmat.reshape(3,3)
         self.target_rpy = mat2euler(curr_mat)
 
-        # 3. Publish the initial hold command immediately
-        # (This prevents the robot from going limp while we wait for the loop)
-        self.publish_command()
-
         self.state_initialized = True
-        rospy.loginfo(">>> Robot Sync Complete. Teleop Active.")
-        rospy.loginfo(f">>> Initial EE Pos: {np.round(self.target_pos, 3)}")
+        rospy.loginfo(">>> Robot Sync Complete. Teleop READY (Press key to move).")
 
     # ------------------------------------------------
     def publish_command(self):
         msg = JointState()
         msg.header.stamp = rospy.Time.now()
         msg.name = JOINT_NAMES
-        # Direct pass-through of the solved IK angles
-        msg.position = self.data.qpos[:NUM_JOINTS].tolist()
+        
+        # Publish the FILTERED position, not the raw IK result
+        msg.position = self.q_filtered.tolist()
         self.cmd_pub.publish(msg)
 
     # ------------------------------------------------
     def set_key_state(self, key):
         self.cart_vel[:] = 0.0
         self.rot_vel[:]  = 0.0
+
+        # If any movement key is pressed, enable the optimizer loop
+        valid_keys = [ord(k) for k in "qawsedrftgyh"]
+        if key in valid_keys and not self.optimization_active:
+            self.optimization_active = True
+            rospy.loginfo(">>> Input detected: Optimization Loop ENABLED")
 
         if key == ord('q'): self.cart_vel[0] = +1
         if key == ord('a'): self.cart_vel[0] = -1
@@ -193,10 +206,18 @@ class MujocoIKTeleopROS:
         # 3. Solve (Damped Least Squares)
         dq = J.T @ np.linalg.solve(J@J.T + DAMPING*np.eye(6), err)
 
-        # 4. Integrate
-        self.data.qpos[:NUM_JOINTS] = clamp_qpos(
+        # 4. Integrate to get RAW IK position
+        raw_ik_qpos = clamp_qpos(
             self.data.qpos[:NUM_JOINTS] + dq * IK_STEP_SCALE
         )
+        
+        # 5. Low Pass Filter (Smoothing)
+        # filtered = (alpha * new) + ((1-alpha) * old)
+        self.q_filtered = (LPF_ALPHA * raw_ik_qpos) + ((1.0 - LPF_ALPHA) * self.q_filtered)
+
+        # 6. Update MuJoCo sim with the FILTERED value
+        # This ensures the next IK step starts from the smoothed position
+        self.data.qpos[:NUM_JOINTS] = self.q_filtered
 
     # ------------------------------------------------
     def run(self, stdscr):
@@ -211,7 +232,7 @@ class MujocoIKTeleopROS:
         while not rospy.is_shutdown() and not self.state_initialized:
             rate.sleep()
 
-        stdscr.addstr(2,0,"Status: CONNECTED. Control Active.    ")
+        stdscr.addstr(2,0,"Status: CONNECTED. Press key to activate IK.")
         stdscr.refresh()
 
         # Control loop
@@ -227,10 +248,24 @@ class MujocoIKTeleopROS:
                     self.cart_vel[:] = 0.0
                     self.rot_vel[:]  = 0.0
 
-                self.integrate_targets()
-                self.ik_step()
+                # === LOGIC MODIFICATION START ===
+                if self.optimization_active:
+                    # Normal Teleop Mode
+                    self.integrate_targets()
+                    self.ik_step() # This includes the Low Pass Filter
+                    stdscr.addstr(2,0,"Status: MOVING (Optimization Active)  ")
+                else:
+                    # Startup/Safety Mode:
+                    # Do NOT run IK. 
+                    # Ensure simulation reflects the filter (which is holding start_q)
+                    self.data.qpos[:NUM_JOINTS] = self.q_filtered
+                    mujoco.mj_forward(self.model, self.data)
+                    stdscr.addstr(2,0,"Status: HOLDING (Press Key to Move)   ")
+                # === LOGIC MODIFICATION END ===
+
                 mujoco.mj_step(self.model,self.data)
 
+                # Always publish the 'self.q_filtered' value
                 self.publish_command()
 
                 viewer.sync()
