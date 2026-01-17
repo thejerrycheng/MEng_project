@@ -18,6 +18,9 @@ class EpisodeWindowDataset(Dataset):
             seq_len: History length
             future_steps: Prediction horizon
         """
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"Data file not found at: {data_path}")
+            
         with open(data_path, "rb") as f:
             self.episodes = pickle.load(f)
             
@@ -36,8 +39,8 @@ class EpisodeWindowDataset(Dataset):
         # Transforms: Resize -> Tensor -> Normalize
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize((128, 128)),
-            transforms.ToTensor(), # Scales to [0,1]
+            transforms.Resize((128, 128)), # Matches your model input size
+            transforms.ToTensor(),         # Scales to [0,1]
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
         ])
 
@@ -54,6 +57,10 @@ class EpisodeWindowDataset(Dataset):
         # 1. Load History (Sequence)
         for i in range(self.seq_len):
             img_path = os.path.join(ep["rgb_dir"], ep["rgb_files"][s + i])
+            
+            if not os.path.exists(img_path):
+                 raise FileNotFoundError(f"Image missing: {img_path}")
+
             img = cv2.imread(img_path)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
@@ -66,7 +73,7 @@ class EpisodeWindowDataset(Dataset):
         rgb_seq = torch.stack(rgb_seq)
         joint_seq = torch.tensor(np.array(joint_seq), dtype=torch.float32)
 
-        # 2. Compute Future Deltas (Ground Truth)
+        # 2. Compute Future Deltas (Ground Truth for Training)
         # Current position at end of history
         q_curr = ep["joints"][s + self.seq_len - 1]
         
@@ -76,10 +83,22 @@ class EpisodeWindowDataset(Dataset):
         # We predict Delta q
         fut_delta = torch.tensor(q_future - q_curr[None, :], dtype=torch.float32)
 
-        # 3. Goal (XYZ)
-        goal_xyz = torch.tensor(ep["goal_xyz"], dtype=torch.float32)
+        # 3. Load Goal Image (Last image of the trajectory)
+        # We assume the last file in 'rgb_files' represents the goal state
+        goal_img_path = os.path.join(ep["rgb_dir"], ep["rgb_files"][-1])
         
-        # 4. Goal (Joints - optional, for auxiliary loss)
-        goal_joint = torch.tensor(ep["goal_joint"], dtype=torch.float32)
+        if not os.path.exists(goal_img_path):
+             raise FileNotFoundError(f"Goal Image missing: {goal_img_path}")
 
-        return rgb_seq, joint_seq, goal_xyz, fut_delta, goal_joint
+        goal_img_raw = cv2.imread(goal_img_path)
+        goal_img_raw = cv2.cvtColor(goal_img_raw, cv2.COLOR_BGR2RGB)
+        
+        # Apply SAME transforms as the input sequence
+        goal_image = self.transform(goal_img_raw)
+
+        # Return: 
+        # 1. Sequence Vision (Input)
+        # 2. Sequence Joints (Input)
+        # 3. Goal Image (Input Condition)
+        # 4. Future Action Delta (Ground Truth Target)
+        return rgb_seq, joint_seq, goal_image, fut_delta

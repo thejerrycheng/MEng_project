@@ -1,35 +1,42 @@
 import torch
 import torch.nn as nn
 
+# -------------------------
+# ACT / Vanilla BC Loss
+# -------------------------
+
 class ACTLoss(nn.Module):
-    def __init__(self, lambda_cont=0.05, lambda_goal=0.2):
+    def __init__(self, lambda_cont=0.0):
+        """
+        Args:
+            lambda_cont: Weight for continuity loss (punishing the first action for not being 0).
+                         Usually 0.0 or very small (e.g. 0.01) for pure BC.
+        """
         super().__init__()
         self.lambda_cont = lambda_cont
-        self.lambda_goal = lambda_goal
         self.mse = nn.MSELoss()
 
-    def forward(self, pred_deltas, target_deltas, current_joints, target_goal_joints):
+    def forward(self, pred_delta, future_delta):
         """
-        pred_deltas: (B, F, 6) - Model Output
-        target_deltas: (B, F, 6) - Ground Truth
-        current_joints: (B, 6) - Joint state at t=0 of prediction
-        target_goal_joints: (B, 6) - The final goal joint configuration
+        Args:
+            pred_delta:   (B, Future_Steps, 6) Predicted change in joint angles
+            future_delta: (B, Future_Steps, 6) Ground Truth change in joint angles
+            
+            Note: We do NOT pass the goal_image here. The goal_image is an INPUT 
+            to the model, not a target for the loss function.
         """
         
-        # 1. Reconstruction Loss (Trajectory matching)
-        loss_mse = self.mse(pred_deltas, target_deltas)
+        # 1. Imitation Loss (MSE on Action Chunk)
+        # "Make the predicted trajectory match the expert's trajectory"
+        loss_action = self.mse(pred_delta, future_delta)
 
-        # 2. Continuity Loss (Penalize jumping at step 0)
-        # We want the first action to be small or consistent
-        loss_cont = self.mse(pred_deltas[:, 0, :], torch.zeros_like(pred_deltas[:, 0, :]))
+        # 2. Continuity Loss (Optional)
+        # Forces the first predicted delta to be close to 0 to ensure smooth start.
+        # This is useful if your controller adds these deltas to the CURRENT state immediately.
+        loss_cont = 0.0
+        if self.lambda_cont > 0:
+            loss_cont = self.mse(pred_delta[:, 0, :], torch.zeros_like(pred_delta[:, 0, :]))
 
-        # 3. Goal Loss (Did we end up at the right place?)
-        # Predict where the robot is at the final future step
-        # Note: We assume deltas are summed over the horizon or relative to current state.
-        # For simplicity in this implementation, we check the final step delta.
-        pred_final_pose = current_joints + pred_deltas[:, -1, :]
-        loss_goal = self.mse(pred_final_pose, target_goal_joints)
+        total_loss = loss_action + (self.lambda_cont * loss_cont)
 
-        total_loss = loss_mse + (self.lambda_cont * loss_cont) + (self.lambda_goal * loss_goal)
-        
-        return total_loss, {"mse": loss_mse, "cont": loss_cont, "goal": loss_goal}
+        return total_loss, {"mse": loss_action.item(), "cont": loss_cont}
