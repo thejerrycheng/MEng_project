@@ -1,191 +1,216 @@
+#!/usr/bin/env python3
 import os
 import argparse
 import numpy as np
 import pandas as pd
-import time
-import yaml
-
 import mujoco
 import mujoco.viewer
+from tqdm import tqdm
 
+# ==================================================
+# Configuration
+# ==================================================
+MUJOCO_SIM_DIR = "/home/jerry/Desktop/MEng_project/mujoco_sim"
+ASSETS_DIR = os.path.join(MUJOCO_SIM_DIR, "assets")
+BASE_XML_PATH = os.path.join(ASSETS_DIR, "iris.xml")
 
-# ----------------------------
-# Args
-# ----------------------------
-parser = argparse.ArgumentParser(
-    description="Visualize human demonstration trajectories in MuJoCo (auto-play episodes)"
-)
-parser.add_argument("--data_root", type=str, required=True,
-                    help="Path to processed_data directory")
-parser.add_argument("--bag_prefix", type=str, required=True,
-                    help="Episode prefix to visualize")
-parser.add_argument("--xml_path", type=str, default="mujoco_sim/assets/iris.xml",
-                    help="Path to IRIS MuJoCo XML model")
-parser.add_argument("--calib_yaml", type=str,
-                    default="meng_ws/src/unitree_arm_ros/config/calibration.yaml",
-                    help="Path to calibration.yaml")
-parser.add_argument("--max_eps", type=int, default=5)
-parser.add_argument("--fps", type=int, default=30)
-parser.add_argument("--pause_between", type=float, default=1.0,
-                    help="Seconds to pause between episodes")
+NUM_JOINTS = 6
 
-args = parser.parse_args()
+# ==================================================
+# 1. Kinematics Helper
+# ==================================================
+class MujocoDirectKinematics:
+    """Helper to compute FK without launching a window."""
+    def __init__(self, xml_path):
+        if not os.path.exists(xml_path):
+            raise FileNotFoundError(f"XML not found: {xml_path}")
+        
+        # Load from path so it handles meshes correctly
+        self.model = mujoco.MjModel.from_xml_path(xml_path)
+        self.data = mujoco.MjData(self.model)
+        
+        # Find EE
+        self.ee_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
+        self.is_site = True
+        if self.ee_id == -1:
+            self.ee_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "ee_mount")
+            self.is_site = False
+        if self.ee_id == -1:
+            self.ee_id = self.model.nbody - 1
+            self.is_site = False
 
+    def get_path(self, joints):
+        """Returns (N, 3) XYZ path for a sequence of joints."""
+        n = len(joints)
+        path = np.zeros((n, 3))
+        for i in range(n):
+            self.data.qpos[:NUM_JOINTS] = joints[i]
+            mujoco.mj_kinematics(self.model, self.data)
+            if self.is_site:
+                path[i] = self.data.site_xpos[self.ee_id]
+            else:
+                path[i] = self.data.xpos[self.ee_id]
+        return path
 
-# ----------------------------
-# Load calibration offsets
-# ----------------------------
-def load_calibration_offsets(yaml_path):
-    if not os.path.isfile(yaml_path):
-        raise FileNotFoundError(f"Calibration file not found: {yaml_path}")
+# ==================================================
+# 2. Scene Generator
+# ==================================================
+def generate_viz_xml(base_xml_path, episodes, fk_solver):
+    """
+    Reads the base XML and injects <geom> tags for every trajectory.
+    ALSO disables gravity so the robot doesn't fall.
+    """
+    print("Generating Visualization XML...")
+    
+    with open(base_xml_path, "r") as f:
+        xml_content = f.read()
 
-    with open(yaml_path, "r") as f:
-        cfg = yaml.safe_load(f)
+    # --- Step A: Disable Gravity & Dynamics ---
+    # We replace the existing <option> tag or insert a new one if missing
+    # This ensures the robot acts like a statue.
+    
+    # 1. Remove existing option tag if present to avoid conflict
+    if "<option" in xml_content:
+        import re
+        xml_content = re.sub(r'<option.*?>.*?</option>', '', xml_content, flags=re.DOTALL)
+        # Also handle self-closing tags
+        xml_content = re.sub(r'<option.*?/>', '', xml_content)
 
-    offs = cfg["joint_offsets"]
-    offsets = np.array([
-        offs["joint_1"],
-        offs["joint_2"],
-        offs["joint_3"],
-        offs["joint_4"],
-        offs["joint_5"],
-        offs["joint_6"],
-    ], dtype=np.float32)
+    # 2. Inject our "Frozen Physics" option
+    # integrator="RK4" timestep="0.01" gravity="0 0 0"
+    frozen_option = '<option gravity="0 0 0" integrator="RK4" timestep="0.01"/>'
+    
+    # Insert inside <mujoco> tag
+    if "<mujoco" in xml_content:
+        # Simple injection after the opening tag
+        first_bracket = xml_content.find(">") + 1
+        xml_content = xml_content[:first_bracket] + "\n    " + frozen_option + xml_content[first_bracket:]
 
-    print("Loaded joint calibration offsets (rad):")
-    print(offsets)
-    return offsets
+    # --- Step B: Create Trajectory Geoms ---
+    geoms = []
+    stride = 2 
+    
+    for ep_idx, ep in enumerate(tqdm(episodes, desc="Computing Paths")):
+        joints = ep['joints']
+        path = fk_solver.get_path(joints)
+        
+        if len(path) < 2: continue
 
-
-# ----------------------------
-# Episode discovery
-# ----------------------------
-def list_episode_dirs(data_root, bag_prefix):
-    eps = []
-    for name in sorted(os.listdir(data_root)):
-        if name.startswith(bag_prefix + "_episode_"):
-            ep = os.path.join(data_root, name)
-            if os.path.isdir(ep):
-                eps.append(ep)
-    return eps
-
-
-def load_episode_joint_csv(ep_dir):
-    csv_path = os.path.join(ep_dir, "robot", "joint_states.csv")
-    if not os.path.isfile(csv_path):
-        return None
-
-    df = pd.read_csv(csv_path)
-    pos_cols = [c for c in df.columns if c.startswith("pos_")]
-    pos_cols = pos_cols[:6]
-
-    q_real = df[pos_cols].to_numpy(dtype=np.float32)  # (T,6)
-    return q_real
-
-
-# ----------------------------
-# Draw gray EE trace
-# ----------------------------
-def draw_gray_trace(viewer, points):
-    scn = viewer.user_scn
-    scn.ngeom = 0
-
-    max_pts = min(len(points), 400)
-
-    for i in range(max_pts):
-        p = points[-max_pts + i]
-
-        mujoco.mjv_initGeom(
-            scn.geoms[i],
-            mujoco.mjtGeom.mjGEOM_SPHERE,
-            np.array([0.003, 0, 0]),
-            p,
-            np.eye(3).flatten(),
-            np.array([0.6, 0.6, 0.6, 0.8])  # gray
+        # Start (Yellow)
+        start = path[0]
+        geoms.append(
+            f'<geom name="ep{ep_idx}_start" type="sphere" pos="{start[0]} {start[1]} {start[2]}" '
+            f'size="0.015" rgba="1 1 0 1" contype="0" conaffinity="0"/>'
         )
-        scn.ngeom += 1
 
+        # End (Green)
+        end = path[-1]
+        geoms.append(
+            f'<geom name="ep{ep_idx}_end" type="sphere" pos="{end[0]} {end[1]} {end[2]}" '
+            f'size="0.015" rgba="0 1 0 1" contype="0" conaffinity="0"/>'
+        )
 
-# ----------------------------
-# Main visualization loop
-# ----------------------------
-def visualize_all_episodes(model, data, episodes, q_offsets, fps, pause_between):
-    dt = 1.0 / fps
+        # Path (Gray Lines)
+        for i in range(0, len(path) - stride, stride):
+            p1 = path[i]
+            p2 = path[i+stride]
+            dist = np.linalg.norm(p2 - p1)
+            if dist > 0.001:
+                geoms.append(
+                    f'<geom type="capsule" fromto="{p1[0]} {p1[1]} {p1[2]} {p2[0]} {p2[1]} {p2[2]}" '
+                    f'size="0.002" rgba="0.6 0.6 0.6 0.4" contype="0" conaffinity="0"/>'
+                )
 
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        print("\nMuJoCo window opened — playing episodes sequentially.")
-        print("Close the window only when finished.\n")
+    geom_block = "\n".join(geoms)
+    
+    if "</worldbody>" in xml_content:
+        new_xml = xml_content.replace("</worldbody>", f"{geom_block}\n</worldbody>")
+    else:
+        raise ValueError("Could not find </worldbody> tag in base XML.")
+        
+    return new_xml
 
-        for ep_idx, ep_dir in enumerate(episodes):
-            print(f"▶ Episode {ep_idx+1}/{len(episodes)}: {os.path.basename(ep_dir)}")
+# ==================================================
+# 3. Data Loader
+# ==================================================
+def load_episodes(root_dir):
+    print(f"Scanning {root_dir}...")
+    episodes = []
+    csv_paths = []
+    for root, dirs, files in os.walk(root_dir):
+        if "joint_states.csv" in files:
+            csv_paths.append(os.path.join(root, "joint_states.csv"))
+            
+    if not csv_paths: return []
 
-            q_real = load_episode_joint_csv(ep_dir)
-            if q_real is None:
-                print("  Skipped (no joint_states.csv)")
-                continue
+    for csv_file in csv_paths:
+        try:
+            df = pd.read_csv(csv_file)
+            cols = [c for c in df.columns if c.startswith("pos_")]
+            if len(cols) >= 6:
+                episodes.append({
+                    "joints": df[cols[:6]].to_numpy()
+                })
+        except: pass
+    return episodes
 
-            ee_trace = []
-
-            for t in range(len(q_real)):
-                if not viewer.is_running():
-                    return
-
-                # Apply calibration
-                q_mj = q_real[t] - q_offsets
-                data.qpos[:6] = q_mj
-                mujoco.mj_forward(model, data)
-
-                # Record EE position
-                ee_pos = data.body("wrist2").xpos.copy()
-                ee_trace.append(ee_pos)
-
-                draw_gray_trace(viewer, ee_trace)
-
-                viewer.sync()
-                time.sleep(dt)
-
-            # Small pause before next episode
-            pause_t0 = time.time()
-            while time.time() - pause_t0 < pause_between:
-                if not viewer.is_running():
-                    return
-                viewer.sync()
-                time.sleep(0.01)
-
-        print("\nAll episodes finished. Close window to exit.")
-        while viewer.is_running():
-            viewer.sync()
-            time.sleep(0.01)
-
-
-# ----------------------------
+# ==================================================
 # Main
-# ----------------------------
-def main():
-    if not os.path.isfile(args.xml_path):
-        raise FileNotFoundError(f"MuJoCo XML not found: {args.xml_path}")
+# ==================================================
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Draw all human demo paths in MuJoCo.")
+    parser.add_argument("--data_dir", type=str, required=True, help="Data folder")
+    parser.add_argument("--xml_path", type=str, default=BASE_XML_PATH)
+    args = parser.parse_args()
 
-    q_offsets = load_calibration_offsets(args.calib_yaml)
+    # 1. Load Data
+    episodes = load_episodes(args.data_dir)
+    if not episodes:
+        print("No data found.")
+        exit()
 
-    model = mujoco.MjModel.from_xml_path(args.xml_path)
+    # 2. Init Solver
+    fk_solver = MujocoDirectKinematics(args.xml_path)
+
+    # 3. Generate Scene (Now with Gravity Disabled)
+    viz_xml_string = generate_viz_xml(args.xml_path, episodes, fk_solver)
+    
+    print("\nScene Generated. Loading Viewer...")
+    print(" - Physics: FROZEN (Gravity=0)")
+    print(" - Robot: Positioned at Start of Episode 0")
+
+    # 4. Load Augmented Model (Change dir to find assets)
+    cwd = os.getcwd()
+    assets_dir = os.path.dirname(args.xml_path)
+    
+    try:
+        os.chdir(assets_dir)
+        model = mujoco.MjModel.from_xml_string(viz_xml_string)
+    except Exception as e:
+        print(f"\nCRITICAL ERROR LOADING XML: {e}")
+        exit()
+    finally:
+        os.chdir(cwd)
+
     data = mujoco.MjData(model)
 
-    episode_dirs = list_episode_dirs(args.data_root, args.bag_prefix)
-    if len(episode_dirs) == 0:
-        raise RuntimeError("No episodes found")
+    # 5. Position Robot at Start of First Episode
+    if len(episodes) > 0:
+        start_joints = episodes[0]['joints'][0]
+        data.qpos[:NUM_JOINTS] = start_joints
+        
+        # Forward kinematics once to place everything
+        mujoco.mj_forward(model, data)
 
-    episode_dirs = episode_dirs[:args.max_eps]
-
-    print(f"\nFound {len(episode_dirs)} episodes to play")
-
-    visualize_all_episodes(
-        model, data,
-        episode_dirs,
-        q_offsets,
-        fps=args.fps,
-        pause_between=args.pause_between
-    )
-
-
-if __name__ == "__main__":
-    main()
+    # 6. Launch with Physics Paused logic
+    # We use launch_passive and manually sync to prevent physics integration drift
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        while viewer.is_running():
+            # Force the joints to stay at the start position every frame
+            # This fights any residual drift
+            if len(episodes) > 0:
+                data.qpos[:NUM_JOINTS] = start_joints
+                
+            # We do NOT call mj_step here, only mj_forward (kinematics only)
+            mujoco.mj_forward(model, data)
+            viewer.sync()
