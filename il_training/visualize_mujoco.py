@@ -12,7 +12,10 @@ from tqdm import tqdm
 # ==================================================
 MUJOCO_SIM_DIR = "/home/jerry/Desktop/MEng_project/mujoco_sim"
 ASSETS_DIR = os.path.join(MUJOCO_SIM_DIR, "assets")
-BASE_XML_PATH = os.path.join(ASSETS_DIR, "iris.xml")
+
+# Default Files
+ROBOT_XML = "iris.xml"
+SCENE_XML = "scene2.xml" # Contains robot + obstacle
 
 NUM_JOINTS = 6
 
@@ -25,7 +28,8 @@ class MujocoDirectKinematics:
         if not os.path.exists(xml_path):
             raise FileNotFoundError(f"XML not found: {xml_path}")
         
-        # Load from path so it handles meshes correctly
+        # Load model. If xml_path uses <include>, MuJoCo handles it relative to cwd
+        # We will handle cwd switching in main() to be safe.
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         
@@ -57,32 +61,27 @@ class MujocoDirectKinematics:
 # ==================================================
 def generate_viz_xml(base_xml_path, episodes, fk_solver):
     """
-    Reads the base XML and injects <geom> tags for every trajectory.
-    ALSO disables gravity so the robot doesn't fall.
+    Reads the base XML (either iris.xml OR scene2.xml)
+    and injects <geom> tags for every trajectory.
+    ALSO disables gravity.
     """
-    print("Generating Visualization XML...")
+    print(f"Generating Visualization from base: {os.path.basename(base_xml_path)}...")
     
     with open(base_xml_path, "r") as f:
         xml_content = f.read()
 
     # --- Step A: Disable Gravity & Dynamics ---
-    # We replace the existing <option> tag or insert a new one if missing
-    # This ensures the robot acts like a statue.
-    
-    # 1. Remove existing option tag if present to avoid conflict
+    # Remove existing option tag to override physics
     if "<option" in xml_content:
         import re
         xml_content = re.sub(r'<option.*?>.*?</option>', '', xml_content, flags=re.DOTALL)
-        # Also handle self-closing tags
         xml_content = re.sub(r'<option.*?/>', '', xml_content)
 
-    # 2. Inject our "Frozen Physics" option
-    # integrator="RK4" timestep="0.01" gravity="0 0 0"
+    # Inject Frozen Physics option
     frozen_option = '<option gravity="0 0 0" integrator="RK4" timestep="0.01"/>'
     
-    # Insert inside <mujoco> tag
+    # Insert after <mujoco> tag
     if "<mujoco" in xml_content:
-        # Simple injection after the opening tag
         first_bracket = xml_content.find(">") + 1
         xml_content = xml_content[:first_bracket] + "\n    " + frozen_option + xml_content[first_bracket:]
 
@@ -123,7 +122,10 @@ def generate_viz_xml(base_xml_path, episodes, fk_solver):
 
     geom_block = "\n".join(geoms)
     
+    # Inject into Worldbody
     if "</worldbody>" in xml_content:
+        # We append our geoms to the end of the worldbody
+        # This preserves whatever obstacle was already there
         new_xml = xml_content.replace("</worldbody>", f"{geom_block}\n</worldbody>")
     else:
         raise ValueError("Could not find </worldbody> tag in base XML.")
@@ -158,59 +160,64 @@ def load_episodes(root_dir):
 # Main
 # ==================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Draw all human demo paths in MuJoCo.")
+    parser = argparse.ArgumentParser(description="Draw human demo paths with optional obstacle.")
     parser.add_argument("--data_dir", type=str, required=True, help="Data folder")
-    parser.add_argument("--xml_path", type=str, default=BASE_XML_PATH)
+    parser.add_argument("--obstacle", action="store_true", help="If set, uses scene2.xml (with obstacle). Else iris.xml.")
     args = parser.parse_args()
 
-    # 1. Load Data
+    # 1. Select Base XML
+    xml_filename = SCENE_XML if args.obstacle else ROBOT_XML
+    selected_xml_path = os.path.join(ASSETS_DIR, xml_filename)
+
+    if not os.path.exists(selected_xml_path):
+        print(f"Error: Could not find {selected_xml_path}")
+        exit()
+
+    # 2. Load Data
     episodes = load_episodes(args.data_dir)
     if not episodes:
         print("No data found.")
         exit()
 
-    # 2. Init Solver
-    fk_solver = MujocoDirectKinematics(args.xml_path)
-
-    # 3. Generate Scene (Now with Gravity Disabled)
-    viz_xml_string = generate_viz_xml(args.xml_path, episodes, fk_solver)
-    
-    print("\nScene Generated. Loading Viewer...")
-    print(" - Physics: FROZEN (Gravity=0)")
-    print(" - Robot: Positioned at Start of Episode 0")
-
-    # 4. Load Augmented Model (Change dir to find assets)
+    # 3. Change Directory (Crucial for <include> tags to work)
+    # We switch to ASSETS_DIR so "iris.xml" or "meshes/" can be found by MuJoCo
     cwd = os.getcwd()
-    assets_dir = os.path.dirname(args.xml_path)
-    
+    os.chdir(ASSETS_DIR)
+
     try:
-        os.chdir(assets_dir)
-        model = mujoco.MjModel.from_xml_string(viz_xml_string)
-    except Exception as e:
-        print(f"\nCRITICAL ERROR LOADING XML: {e}")
-        exit()
-    finally:
-        os.chdir(cwd)
+        # 4. Init Solver (Computes FK using the selected XML)
+        fk_solver = MujocoDirectKinematics(xml_filename)
 
-    data = mujoco.MjData(model)
-
-    # 5. Position Robot at Start of First Episode
-    if len(episodes) > 0:
-        start_joints = episodes[0]['joints'][0]
-        data.qpos[:NUM_JOINTS] = start_joints
+        # 5. Generate Scene (Injects lines into XML)
+        # Note: We pass the full path but since we are in ASSETS_DIR, filename works too.
+        viz_xml_string = generate_viz_xml(xml_filename, episodes, fk_solver)
         
-        # Forward kinematics once to place everything
-        mujoco.mj_forward(model, data)
+        print("\nScene Generated. Loading Viewer...")
+        print(f" - Base Scene: {xml_filename}")
+        print(" - Physics: FROZEN (Gravity=0)")
 
-    # 6. Launch with Physics Paused logic
-    # We use launch_passive and manually sync to prevent physics integration drift
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        while viewer.is_running():
-            # Force the joints to stay at the start position every frame
-            # This fights any residual drift
-            if len(episodes) > 0:
-                data.qpos[:NUM_JOINTS] = start_joints
-                
-            # We do NOT call mj_step here, only mj_forward (kinematics only)
+        # 6. Load Augmented Model
+        model = mujoco.MjModel.from_xml_string(viz_xml_string)
+        data = mujoco.MjData(model)
+
+        # 7. Position Robot at Start of First Episode
+        if len(episodes) > 0:
+            start_joints = episodes[0]['joints'][0]
+            data.qpos[:NUM_JOINTS] = start_joints
             mujoco.mj_forward(model, data)
-            viewer.sync()
+
+        # 8. Launch Viewer with Hold Logic
+        with mujoco.viewer.launch_passive(model, data) as viewer:
+            while viewer.is_running():
+                # Constantly reset position to fight any drift
+                if len(episodes) > 0:
+                    data.qpos[:NUM_JOINTS] = start_joints
+                
+                mujoco.mj_forward(model, data)
+                viewer.sync()
+
+    except Exception as e:
+        print(f"\nCRITICAL ERROR: {e}")
+    finally:
+        # Always return to original folder
+        os.chdir(cwd)
