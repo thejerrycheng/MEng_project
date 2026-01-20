@@ -19,25 +19,50 @@ except:
 # ------------------------------------------------------------
 # ROSBAG READERS
 # ------------------------------------------------------------
-
 def read_images_from_rosbag(bag_file, topic):
     bridge = CvBridge()
     images, timestamps = [], []
 
-    with rosbag.Bag(bag_file, 'r') as bag:
-        for _, msg, t in bag.read_messages(topics=[topic]):
-            enc = (msg.encoding or "").lower()
-            try:
-                if "rgb8" in enc or "bgr8" in enc:
-                    cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                elif "16uc1" in enc or "32fc1" in enc:
-                    cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-                else:
-                    continue
-                images.append(cv_image)
-                timestamps.append(t.to_sec())
-            except:
-                pass
+    # 1. Handle Split Bags automatically
+    # If the file ends in _0.bag, look for _1.bag, _2.bag, etc.
+    bag_files = [bag_file]
+    if bag_file.endswith("_0.bag"):
+        base_name = bag_file[:-6] # strip "_0.bag"
+        i = 1
+        while True:
+            next_bag = f"{base_name}_{i}.bag"
+            if os.path.exists(next_bag):
+                bag_files.append(next_bag)
+                i += 1
+            else:
+                break
+        if len(bag_files) > 1:
+            print(f"Found split bags: {len(bag_files)} parts detected.")
+
+    # 2. Iterate over all bag parts
+    for b_file in bag_files:
+        print(f"Reading {b_file}...")
+        with rosbag.Bag(b_file, 'r') as bag:
+            for _, msg, t in bag.read_messages(topics=[topic]):
+                enc = (msg.encoding or "").lower()
+                
+                # 3. REMOVED SILENT TRY/EXCEPT
+                try:
+                    if "rgb8" in enc or "bgr8" in enc:
+                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+                    elif "mono8" in enc:
+                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="mono8")
+                    else:
+                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+                    
+                    images.append(cv_image)
+                    timestamps.append(t.to_sec())
+
+                except Exception as e:
+                    # PRINT THE ERROR so we know why it fails
+                    print(f"Error converting image on topic {topic}: {e}")
+                    # If it fails once, it will likely fail for all. Break to avoid spam.
+                    return [], np.array([])
 
     return images, np.asarray(timestamps, dtype=float)
 
@@ -308,12 +333,16 @@ def main():
 
     print("Loading RGB...")
     rgb, rgb_ts = read_images_from_rosbag(bag_file, rgb_topic)
+    print(f"RGB frames loaded: {len(rgb)}")
 
     print("Loading Depth...")
     depth, depth_ts = read_images_from_rosbag(bag_file, depth_topic)
+    print(f"Depth frames loaded: {len(depth)}")
 
     print("Loading Joint States...")
     joint_ts, joint_pos, joint_vel, joint_eff, joint_names = read_joint_states_from_rosbag(bag_file, joint_topic)
+    print(f"Joint state messages loaded: {len(joint_ts)}")
+ 
 
     off = find_temporal_offset(depth_ts, rgb_ts)
     depth, rgb = temporal_align(off, depth, rgb)

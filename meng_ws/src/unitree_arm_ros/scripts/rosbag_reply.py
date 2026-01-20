@@ -80,7 +80,7 @@ def read_bag_trajectory(bag_path):
 # ==================================================
 class TeachRepeatNode:
     def __init__(self, bag_path):
-        rospy.init_node("teach_and_repeat_node")
+        rospy.init_node("rosbag_replay_node")
 
         # 1. Load Trajectory from Bag
         self.recorded_traj = read_bag_trajectory(bag_path)
@@ -91,13 +91,13 @@ class TeachRepeatNode:
 
         # State
         self.live_joints = None
-        self.state_received = False
+        self.state_received = False 
         
         rospy.loginfo("Waiting for live /joint_states_calibrated to init homing...")
 
     def state_cb(self, msg):
         """Update live robot state constantly"""
-        q_temp = np.zeros(NUM_JOINTS)
+        q_temp = np.zeros(NUM_JOINTS, dtype=float)
         name_to_idx = {n: i for i, n in enumerate(msg.name)}
         
         complete = True

@@ -23,12 +23,12 @@ MOTOR_IDS = [0, 1, 2, 3, 4, 5]
 
 # Impedance settings for active playback (nonzero gains).
 IMPEDANCE_SETTINGS = {
-    0: {"kp": 1.5, "kd": 0.05},
-    1: {"kp": 2.5, "kd": 0.15},
-    2: {"kp": 2.5, "kd": 0.15},
-    3: {"kp": 1.0, "kd": 0.025},
-    4: {"kp": 1.0, "kd": 0.125},
-    5: {"kp": 1.0, "kd": 0.125},
+    0: {"kp": 6.0, "kd": 0.15},
+    1: {"kp": 8.0, "kd": 0.15},
+    2: {"kp": 8.0, "kd": 0.15},
+    3: {"kp": 6.0, "kd": 0.125},
+    4: {"kp": 6.0, "kd": 0.125},
+    5: {"kp": 6.0, "kd": 0.125},
 }
 
 # Initialize Hardware
