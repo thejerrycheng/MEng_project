@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import rosbag
 from sensor_msgs.msg import Image, JointState
-from cv_bridge import CvBridge
 import cv2
 import argparse
 import os
@@ -17,52 +16,54 @@ except:
 
 
 # ------------------------------------------------------------
+# MANUAL CONVERTER (Replaces CvBridge)
+# ------------------------------------------------------------
+def msg_to_numpy(msg):
+    """
+    Manually converts ROS Image message to numpy array to avoid
+    conda/system GLIBCXX conflicts with cv_bridge.
+    """
+    try:
+        if "8UC1" in msg.encoding or "mono8" in msg.encoding:
+            return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width)
+        
+        elif "16UC1" in msg.encoding or "mono16" in msg.encoding:
+            return np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width)
+        
+        elif "bgr8" in msg.encoding:
+            return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
+        
+        elif "rgb8" in msg.encoding:
+            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
+            return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            
+        else:
+            # Fallback for generic 8-bit, 3-channel
+            return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+            
+    except Exception as e:
+        print(f"Manual conversion error on {msg.encoding}: {e}")
+        return None
+
+
+# ------------------------------------------------------------
 # ROSBAG READERS
 # ------------------------------------------------------------
+
 def read_images_from_rosbag(bag_file, topic):
-    bridge = CvBridge()
     images, timestamps = [], []
 
-    # 1. Handle Split Bags automatically
-    # If the file ends in _0.bag, look for _1.bag, _2.bag, etc.
-    bag_files = [bag_file]
-    if bag_file.endswith("_0.bag"):
-        base_name = bag_file[:-6] # strip "_0.bag"
-        i = 1
-        while True:
-            next_bag = f"{base_name}_{i}.bag"
-            if os.path.exists(next_bag):
-                bag_files.append(next_bag)
-                i += 1
-            else:
-                break
-        if len(bag_files) > 1:
-            print(f"Found split bags: {len(bag_files)} parts detected.")
-
-    # 2. Iterate over all bag parts
-    for b_file in bag_files:
-        print(f"Reading {b_file}...")
-        with rosbag.Bag(b_file, 'r') as bag:
-            for _, msg, t in bag.read_messages(topics=[topic]):
-                enc = (msg.encoding or "").lower()
-                
-                # 3. REMOVED SILENT TRY/EXCEPT
-                try:
-                    if "rgb8" in enc or "bgr8" in enc:
-                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                    elif "mono8" in enc:
-                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="mono8")
-                    else:
-                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-                    
-                    images.append(cv_image)
-                    timestamps.append(t.to_sec())
-
-                except Exception as e:
-                    # PRINT THE ERROR so we know why it fails
-                    print(f"Error converting image on topic {topic}: {e}")
-                    # If it fails once, it will likely fail for all. Break to avoid spam.
-                    return [], np.array([])
+    print(f"Reading {bag_file}...")
+    
+    with rosbag.Bag(bag_file, 'r') as bag:
+        for _, msg, t in bag.read_messages(topics=[topic]):
+            
+            # Use manual numpy conversion instead of cv_bridge
+            cv_image = msg_to_numpy(msg)
+            
+            if cv_image is not None:
+                images.append(cv_image)
+                timestamps.append(t.to_sec())
 
     return images, np.asarray(timestamps, dtype=float)
 
@@ -100,8 +101,9 @@ def read_joint_states_from_rosbag(bag_file, topic):
 
 def find_temporal_offset(t1, t2):
     best, offset = 1e9, 0
-    for i in range(min(30, len(t1))):
-        for j in range(min(30, len(t2))):
+    # Search start of arrays
+    for i in range(min(50, len(t1))):
+        for j in range(min(50, len(t2))):
             d = abs(t2[j] - t1[i])
             if d < best:
                 best, offset = d, i - j
@@ -125,7 +127,6 @@ def interpolate_robot(query_ts, joint_ts, pos, vel, eff):
     if len(joint_ts) == 0 or pos.size == 0:
         return None
 
-    # Clamp queries inside available joint timestamps
     t_min = joint_ts[0]
     t_max = joint_ts[-1]
     query_ts = np.clip(query_ts, t_min, t_max)
@@ -134,13 +135,10 @@ def interpolate_robot(query_ts, joint_ts, pos, vel, eff):
     jt = joint_ts[order]
     pos = pos[order]
 
-    # Handle possibly empty vel/eff
     has_vel = vel.size > 0
     has_eff = eff.size > 0
-    if has_vel:
-        vel = vel[order]
-    if has_eff:
-        eff = eff[order]
+    if has_vel: vel = vel[order]
+    if has_eff: eff = eff[order]
 
     M = len(query_ts)
     J = pos.shape[1]
@@ -159,54 +157,42 @@ def interpolate_robot(query_ts, joint_ts, pos, vel, eff):
     return pos_out, vel_out, eff_out
 
 
-
 # ------------------------------------------------------------
 # UI DRAWING
 # ------------------------------------------------------------
 
 def normalize_depth(img):
-    img = np.clip(img, 0, 10000)
-    img = (img / 10000.0) * 255
+    # Simple depth normalization for visualization
+    img = np.clip(img, 0, 3000) # clip at 3 meters
+    img = (img / 3000.0) * 255
     img = np.uint8(img)
     return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
 
 
 def draw_joint_hud(image, joint_values, title):
     h, w, _ = image.shape
-
-    panel_x = 15
-    panel_y = 50
-    panel_w = 260
-    panel_h = 190
+    panel_x, panel_y = 15, 50
+    panel_w, panel_h = 260, 190
     alpha = 0.55
 
     overlay = image.copy()
-    cv2.rectangle(overlay,
-                  (panel_x, panel_y),
-                  (panel_x + panel_w, panel_y + panel_h),
-                  (0, 0, 0), -1)
+    cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (0, 0, 0), -1)
     cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
 
-    cv2.putText(image, title,
-                (panel_x + 10, panel_y + 25),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (255, 255, 255), 2)
+    cv2.putText(image, title, (panel_x + 10, panel_y + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     for i, val in enumerate(joint_values):
         if np.isnan(val) or np.isinf(val):
             txt = f"J{i+1}:   --.- deg"
         else:
             txt = f"J{i+1}: {val:6.1f} deg"
-
-        cv2.putText(image, txt,
-                    (panel_x + 10, panel_y + 55 + i * 22),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(image, txt, (panel_x + 10, panel_y + 55 + i * 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
 
 
-def draw_preview(depth, rgb, s, e,
-                 rgb_ts,
-                 joint_ts, joint_pos, joint_vel, joint_eff, joint_names):
+def draw_preview(depth, rgb, s, e, rgb_ts, joint_ts, joint_pos, joint_vel, joint_eff, joint_names):
+    # Ensure indices are safe
+    s = min(max(0, s), len(rgb)-1)
+    e = min(max(0, e), len(rgb)-1)
 
     d1 = normalize_depth(depth[s].copy())
     d2 = normalize_depth(depth[e].copy())
@@ -219,7 +205,6 @@ def draw_preview(depth, rgb, s, e,
     c1 = cv2.resize(c1, target)
     c2 = cv2.resize(c2, target)
 
-    # interpolate joints at start & end timestamps
     ts_query = np.array([rgb_ts[s], rgb_ts[e]])
     interp = interpolate_robot(ts_query, joint_ts, joint_pos, joint_vel, joint_eff)
 
@@ -255,11 +240,7 @@ def play(rgb, s, e):
 # SAVE EPISODE
 # ------------------------------------------------------------
 
-def save_episode(ep_idx, bag_name, out_root,
-                 rgb, depth, rgb_ts,
-                 joint_ts, joint_pos, joint_vel, joint_eff, joint_names,
-                 s, e):
-
+def save_episode(ep_idx, bag_name, out_root, rgb, depth, rgb_ts, joint_ts, joint_pos, joint_vel, joint_eff, joint_names, s, e):
     ep_name = f"{bag_name}_episode_{ep_idx:04d}"
     ep_dir = os.path.join(out_root, ep_name)
 
@@ -275,27 +256,21 @@ def save_episode(ep_idx, bag_name, out_root,
     frame_id = 1
     for i in range(s, e + 1):
         cv2.imwrite(os.path.join(rgb_dir, f"frame_{frame_id:04d}.png"), rgb[i])
+        # Save raw 16-bit depth
         cv2.imwrite(os.path.join(depth_dir, f"frame_{frame_id:04d}.png"), depth[i])
         saved_ts.append(rgb_ts[i])
         frame_id += 1
 
     saved_ts = np.asarray(saved_ts)
-
     interp = interpolate_robot(saved_ts, joint_ts, joint_pos, joint_vel, joint_eff)
-
     df = pd.DataFrame({"timestamp": saved_ts})
 
     if interp is not None:
         pos_i, vel_i, eff_i = interp
-
         for j, name in enumerate(joint_names):
             df[f"pos_{name}"] = pos_i[:, j]
-
-            if vel_i is not None:
-                df[f"vel_{name}"] = vel_i[:, j]
-
-            if eff_i is not None:
-                df[f"eff_{name}"] = eff_i[:, j]
+            if vel_i is not None: df[f"vel_{name}"] = vel_i[:, j]
+            if eff_i is not None: df[f"eff_{name}"] = eff_i[:, j]
 
     df.to_csv(os.path.join(robot_dir, "joint_states.csv"), index=False)
 
@@ -342,13 +317,17 @@ def main():
     print("Loading Joint States...")
     joint_ts, joint_pos, joint_vel, joint_eff, joint_names = read_joint_states_from_rosbag(bag_file, joint_topic)
     print(f"Joint state messages loaded: {len(joint_ts)}")
- 
+
+    # Safety check if loading failed
+    if len(rgb) == 0 or len(depth) == 0:
+        print("❌ Error: No images loaded. Please check bag file content or topic names.")
+        return
 
     off = find_temporal_offset(depth_ts, rgb_ts)
     depth, rgb = temporal_align(off, depth, rgb)
     depth_ts, rgb_ts = temporal_align(off, depth_ts, rgb_ts)
 
-    print(f"Frames loaded: {len(rgb)}")
+    print(f"Frames loaded (aligned): {len(rgb)}")
     if len(rgb) < 2:
         return
 
@@ -363,33 +342,29 @@ def main():
     print("ESC : Exit\n")
 
     while True:
-        canvas = draw_preview(depth, rgb, s, e,
-                               rgb_ts,
-                               joint_ts, joint_pos, joint_vel, joint_eff, joint_names)
+        canvas = draw_preview(depth, rgb, s, e, rgb_ts, joint_ts, joint_pos, joint_vel, joint_eff, joint_names)
         cv2.imshow("IRIS Episode Cutter", canvas)
         key = cv2.waitKey(0)
 
-        if key == 81:
+        # Arrow keys
+        if key == 81: # Left
             s = max(0, s - 1)
             e = max(s + 1, e)
-        elif key == 83:
+        elif key == 83: # Right
             s = min(len(rgb) - 2, s + 1)
             e = max(s + 1, e)
-        elif key == 82:
+        elif key == 82: # Up
             e = min(len(rgb) - 1, e + 1)
-        elif key == 84:
+        elif key == 84: # Down
             e = max(s + 1, e - 1)
         elif key == ord('p'):
             play(rgb, s, e)
-        elif key == 13:
-            save_episode(ep_counter, bag_name, out_root,
-                         rgb, depth, rgb_ts,
-                         joint_ts, joint_pos, joint_vel, joint_eff, joint_names,
-                         s, e)
+        elif key == 13: # Enter
+            save_episode(ep_counter, bag_name, out_root, rgb, depth, rgb_ts, joint_ts, joint_pos, joint_vel, joint_eff, joint_names, s, e)
             ep_counter += 1
             s = min(e + 1, len(rgb) - 2)
             e = min(s + 1, len(rgb) - 1)
-        elif key == 27:
+        elif key == 27: # Esc
             break
 
     cv2.destroyAllWindows()
