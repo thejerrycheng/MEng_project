@@ -70,6 +70,10 @@ def main():
     parser.add_argument("--name", type=str, required=True, help="Experiment Name")
     parser.add_argument("--model", type=str, required=True, help=f"Options: {list(MODEL_MAPPING.keys())}")
     parser.add_argument("--loss", type=str, required=True, help=f"Options: {list(LOSS_MAPPING.keys())}")
+    
+    # CHANGED: Default checkpoint directory to SSD
+    parser.add_argument("--checkpoint_dir", type=str, default="/media/jerry/SSD/checkpoints", 
+                        help="Directory to save model checkpoints")
 
     # Hyperparams
     parser.add_argument("--batch_size", type=int, default=32)
@@ -91,10 +95,13 @@ def main():
     args = parser.parse_args()
 
     # Directories
-    models_dir = "checkpoints"
-    plots_dir = "plots"
+    models_dir = args.checkpoint_dir # Use the SSD path from arguments
+    plots_dir = "plots" # Keep plots local (or change to SSD if desired)
+    
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(plots_dir, exist_ok=True)
+
+    logging.info(f"Saving checkpoints to: {models_dir}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
@@ -263,7 +270,7 @@ def main():
 
                 if isinstance(output, tuple):
                     pred, (mu, logvar) = output
-                    # FIXED: Create dummy stats with correct shape (B, Latent)
+                    # Handle inference case where mu/logvar might be None
                     if mu is None: 
                         B = rgb.shape[0]
                         mu = torch.zeros((B, args.latent_dim)).to(device)
@@ -295,7 +302,7 @@ def main():
             best_val_loss = avg_val
             save_path = os.path.join(models_dir, f"best_{args.name}.pth")
             torch.save(model.state_dict(), save_path)
-            logging.info(f"    -> New Best Model Saved!")
+            logging.info(f"    -> New Best Model Saved to SSD!")
 
     torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.name}.pth"))
     
