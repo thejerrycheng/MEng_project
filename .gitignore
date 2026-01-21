@@ -65,7 +65,6 @@ meng_ws/src/il_training/processed_dataset/
 # ========================================
 # Training outputs / models
 # ========================================
-models/
 plots/
 *.pt
 *.pth
