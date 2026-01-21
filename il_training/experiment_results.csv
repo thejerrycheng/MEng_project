@@ -1,0 +1,2 @@
+Method,goal_err_cm,smoothness,frame_err_deg,inference_ms
+Ours (Transformer),1.83 ± 0.23,43122.68 ± 3720.07,0.96 ± 0.71,72.38 ± 67.20

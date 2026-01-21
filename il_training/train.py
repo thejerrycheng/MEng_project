@@ -6,16 +6,15 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import importlib
+import time
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset, random_split
 
-# Import both models
-from models.transformer_model import ACT_RGB
-from models.cnn_model import VanillaBC
-from datasets.iris_dataset import EpisodeWindowDataset
-from losses.loss import ACTLoss
+# Import the Dataset
+from datasets.iris_dataset import IRISClipDataset
 
 # ---------------------
 # Logging Setup
@@ -26,11 +25,28 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-def count_parameters(model):
-    """Counts trainable parameters."""
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return total_params, trainable_params
+# ---------------------
+# Dynamic Loading Helpers
+# ---------------------
+MODEL_MAPPING = {
+    "transformer_model": "ACT_RGB",
+    "cnn_model": "VanillaBC",
+    "transformer_cvae": "ACT_CVAE_Optimized",
+}
+
+LOSS_MAPPING = {
+    "loss": "ACTLoss",
+    "loss_kl": "ACTCVAELoss",
+}
+
+def load_class_from_module(module_type, module_name, class_name):
+    try:
+        full_module_path = f"{module_type}.{module_name}"
+        module = importlib.import_module(full_module_path)
+        return getattr(module, class_name)
+    except Exception as e:
+        logging.error(f"Error loading {class_name} from {module_name}: {e}")
+        raise e
 
 def save_plots(history, plots_dir, name):
     plt.figure(figsize=(10, 5))
@@ -43,32 +59,34 @@ def save_plots(history, plots_dir, name):
     plt.grid(True)
     plt.savefig(os.path.join(plots_dir, f"loss_{name}.png"))
     plt.close()
+    logging.info(f"Saved plot to {plots_dir}/loss_{name}.png")
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="processed_data", help="Dir containing .pkl files")
-    parser.add_argument("--name", type=str, required=True, help="Experiment Name")
     
-    # Model Selection
-    parser.add_argument("--model", type=str, required=True, choices=['transformer', 'cnn'], 
-                        help="Choose architecture: 'transformer' (ACT) or 'cnn' (Vanilla BC)")
+    # Data & Experiment
+    parser.add_argument("--data_roots", type=str, nargs='+', required=True, 
+                        help="List of root dirs (e.g. /path/to/data1 /path/to/data2)")
+    parser.add_argument("--name", type=str, required=True, help="Experiment Name")
+    parser.add_argument("--model", type=str, required=True, help=f"Options: {list(MODEL_MAPPING.keys())}")
+    parser.add_argument("--loss", type=str, required=True, help=f"Options: {list(LOSS_MAPPING.keys())}")
 
     # Hyperparams
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--num_workers", type=int, default=8)
     
-    # Common Model Params
+    # Model Params
     parser.add_argument("--seq_len", type=int, default=8)
     parser.add_argument("--future_steps", type=int, default=15)
     
-    # Transformer Specific
+    # Architecture Params
     parser.add_argument("--d_model", type=int, default=256)
     parser.add_argument("--nhead", type=int, default=8)
-    
-    # CNN Specific
-    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--latent_dim", type=int, default=32)
+    parser.add_argument("--beta", type=float, default=0.01)
+    parser.add_argument("--smoothness_weight", type=float, default=0.01)
     
     args = parser.parse_args()
 
@@ -82,120 +100,210 @@ def main():
     logging.info(f"Using device: {device}")
 
     # ---------------------
-    # Data Loading
+    # Multi-Source Data Loading
     # ---------------------
-    logging.info(f"Loading Datasets for Model: {args.model.upper()}...")
-    train_pkl = os.path.join(args.data_dir, "train_episodes.pkl")
-    val_pkl = os.path.join(args.data_dir, "val_episodes.pkl")
+    logging.info("--- Data Loading Phase ---")
+    train_datasets = []
+    val_datasets = []
 
-    train_ds = EpisodeWindowDataset(train_pkl, args.seq_len, args.future_steps)
-    val_ds = EpisodeWindowDataset(val_pkl, args.seq_len, args.future_steps)
+    for root in args.data_roots:
+        train_path = os.path.join(root, "train")
+        val_path = os.path.join(root, "val")
+        
+        logging.info(f"Scanning root: {root}")
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, 
+        if os.path.exists(train_path):
+            try:
+                ds = IRISClipDataset(train_path)
+                train_datasets.append(ds)
+                logging.info(f"  [+] Loaded {len(ds)} train clips from {train_path}")
+            except Exception as e:
+                logging.warning(f"  [-] Failed to load {train_path}: {e}")
+        else:
+            logging.warning(f"  [-] Missing train path: {train_path}")
+
+        if os.path.exists(val_path):
+            try:
+                ds = IRISClipDataset(val_path)
+                if len(ds) > 0:
+                    val_datasets.append(ds)
+                    logging.info(f"  [+] Loaded {len(ds)} val clips from {val_path}")
+            except Exception:
+                pass 
+
+    if not train_datasets:
+        raise RuntimeError("No training datasets loaded! Check your paths.")
+
+    full_train_ds = ConcatDataset(train_datasets)
+    full_val_ds = ConcatDataset(val_datasets) if val_datasets else None
+
+    # Auto-Split if Validation is missing
+    if full_val_ds is None or len(full_val_ds) == 0:
+        logging.warning("⚠️  No validation data found on disk! Performing automatic 90/10 split...")
+        total_len = len(full_train_ds)
+        train_len = int(0.9 * total_len)
+        val_len = total_len - train_len
+        
+        full_train_ds, full_val_ds = random_split(
+            full_train_ds, 
+            [train_len, val_len],
+            generator=torch.Generator().manual_seed(42)
+        )
+        logging.info(f"  -> Split created: {train_len} Train / {val_len} Val")
+
+    logging.info(f"TOTAL Train Samples: {len(full_train_ds)}")
+    logging.info(f"TOTAL Val Samples:   {len(full_val_ds)}")
+
+    train_loader = DataLoader(full_train_ds, batch_size=args.batch_size, shuffle=True, 
                               num_workers=args.num_workers, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, 
+    val_loader = DataLoader(full_val_ds, batch_size=args.batch_size, shuffle=False, 
                             num_workers=args.num_workers, pin_memory=True)
 
     # ---------------------
-    # Model Instantiation
+    # Model & Loss Init
     # ---------------------
-    if args.model == 'transformer':
-        logging.info("Initializing Transformer (ACT) Model...")
-        model = ACT_RGB(
-            seq_len=args.seq_len,
-            future_steps=args.future_steps,
-            d_model=args.d_model,
-            nhead=args.nhead
+    logging.info("--- Model Initialization ---")
+    
+    if args.model not in MODEL_MAPPING: raise ValueError(f"Unknown model: {args.model}")
+    if args.loss not in LOSS_MAPPING: raise ValueError(f"Unknown loss: {args.loss}")
+
+    ModelClass = load_class_from_module("models", args.model, MODEL_MAPPING[args.model])
+    logging.info(f"Model Class: {ModelClass.__name__}")
+
+    if "CVAE" in ModelClass.__name__:
+        model = ModelClass(
+            seq_len=args.seq_len, future_steps=args.future_steps,
+            d_model=args.d_model, nhead=args.nhead, latent_dim=args.latent_dim
         ).to(device)
-        
-    elif args.model == 'cnn':
-        logging.info("Initializing Vanilla CNN (BC) Model...")
-        model = VanillaBC(
-            seq_len=args.seq_len,
-            future_steps=args.future_steps,
-            hidden_dim=args.hidden_dim,
-            freeze_backbone=False 
+    else:
+        model = ModelClass(
+            seq_len=args.seq_len, future_steps=args.future_steps,
+            d_model=args.d_model, nhead=args.nhead
         ).to(device)
 
-    # Count Parameters
-    total, trainable = count_parameters(model)
-    logging.info(f"Model Parameters: {total:,} total | {trainable:,} trainable")
+    # Count Params
+    total_params = sum(p.numel() for p in model.parameters())
+    logging.info(f"Model Parameters: {total_params:,}")
 
-    # Optimizer & Loss
+    LossClass = load_class_from_module("losses", args.loss, LOSS_MAPPING[args.loss])
+    if "CVAE" in LossClass.__name__:
+        criterion = LossClass(beta=args.beta, smoothness_weight=args.smoothness_weight)
+        logging.info(f"Loss: CVAE Loss (Beta={args.beta}, Smoothness={args.smoothness_weight})")
+    else:
+        criterion = LossClass()
+        logging.info("Loss: Standard ACT Loss")
+
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    criterion = ACTLoss() 
 
     # ---------------------
     # Training Loop
     # ---------------------
+    logging.info("--- Starting Training ---")
     history = {'train_loss': [], 'val_loss': []}
     best_val_loss = float('inf')
+    
+    start_time = time.time()
 
     for epoch in range(args.epochs):
-        # --- Train ---
         model.train()
         train_loss_acc = 0
+        batch_count = 0
         
-        for batch_idx, (rgb, joints, goal_delta, fut_delta, goal_joint_abs) in enumerate(train_loader):
+        # Training
+        for batch_idx, (rgb, joints, goal_image, fut_delta) in enumerate(train_loader):
             rgb = rgb.to(device)
             joints = joints.to(device)
-            goal_delta = goal_delta.to(device)
+            goal_image = goal_image.to(device)
             fut_delta = fut_delta.to(device)
             
             optimizer.zero_grad()
             
-            # Forward pass is identical for both models
-            # (rgb, joint, goal) -> action_delta
-            pred_delta = model(rgb, joints, goal_delta)
+            if "CVAE" in ModelClass.__name__:
+                output = model(rgb, joints, goal_image, target_actions=fut_delta)
+            else:
+                output = model(rgb, joints, goal_image)
             
-            loss, _ = criterion(pred_delta, fut_delta)
+            if isinstance(output, tuple):
+                pred, (mu, logvar) = output
+                loss, loss_dict = criterion(pred, fut_delta, mu, logvar)
+            else:
+                pred = output
+                loss, loss_dict = criterion(pred, fut_delta)
             
             loss.backward()
             optimizer.step()
             
             train_loss_acc += loss.item()
+            batch_count += 1
+            
+            if batch_idx % 10 == 0:
+                log_str = f"Epoch {epoch+1} [{batch_idx}/{len(train_loader)}] Loss: {loss.item():.4f}"
+                if isinstance(loss_dict, dict):
+                    if 'mse' in loss_dict: log_str += f" | MSE: {loss_dict['mse']:.4f}"
+                    if 'kl' in loss_dict: log_str += f" | KL: {loss_dict['kl']:.4f}"
+                logging.info(log_str)
 
-        avg_train = train_loss_acc / len(train_loader)
+        avg_train = train_loss_acc / batch_count
 
-        # --- Validate ---
+        # Validation
         model.eval()
         val_loss_acc = 0
+        val_batches = 0
         with torch.no_grad():
-            for rgb, joints, goal_delta, fut_delta, goal_joint_abs in val_loader:
+            for rgb, joints, goal_image, fut_delta in val_loader:
                 rgb = rgb.to(device)
                 joints = joints.to(device)
-                goal_delta = goal_delta.to(device)
+                goal_image = goal_image.to(device)
                 fut_delta = fut_delta.to(device)
 
-                pred_delta = model(rgb, joints, goal_delta)
-                loss, _ = criterion(pred_delta, fut_delta)
+                if "CVAE" in ModelClass.__name__:
+                    output = model(rgb, joints, goal_image, target_actions=None)
+                else:
+                    output = model(rgb, joints, goal_image)
+
+                if isinstance(output, tuple):
+                    pred, (mu, logvar) = output
+                    # FIXED: Create dummy stats with correct shape (B, Latent)
+                    if mu is None: 
+                        B = rgb.shape[0]
+                        mu = torch.zeros((B, args.latent_dim)).to(device)
+                    if logvar is None: 
+                        B = rgb.shape[0]
+                        logvar = torch.zeros((B, args.latent_dim)).to(device)
+                        
+                    loss, _ = criterion(pred, fut_delta, mu, logvar)
+                else:
+                    pred = output
+                    loss, _ = criterion(pred, fut_delta)
+                
                 val_loss_acc += loss.item()
+                val_batches += 1
 
-        avg_val = val_loss_acc / len(val_loader)
+        avg_val = val_loss_acc / val_batches
 
-        # --- Log & Save ---
+        epoch_dur = time.time() - start_time
+        start_time = time.time() 
+        
+        logging.info(f"=== Epoch {epoch+1}/{args.epochs} Completed in {epoch_dur:.1f}s ===")
+        logging.info(f"    Train Loss: {avg_train:.5f}")
+        logging.info(f"    Val Loss:   {avg_val:.5f}")
+
         history['train_loss'].append(avg_train)
         history['val_loss'].append(avg_val)
 
-        logging.info(f"Epoch {epoch+1}/{args.epochs} | Train: {avg_train:.5f} | Val: {avg_val:.5f}")
-
         if avg_val < best_val_loss:
             best_val_loss = avg_val
-            # Save using the specific model name and experiment name
-            torch.save(model.state_dict(), os.path.join(models_dir, f"best_{args.model}_{args.name}.pth"))
-            logging.info("  -> Saved Best Model")
+            save_path = os.path.join(models_dir, f"best_{args.name}.pth")
+            torch.save(model.state_dict(), save_path)
+            logging.info(f"    -> New Best Model Saved!")
 
-    logging.info("Training Complete.")
+    torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.name}.pth"))
     
-    # Save Final
-    torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.model}_{args.name}.pth"))
-    
-    # Save CSV
     df = pd.DataFrame(history)
-    df.to_csv(os.path.join(plots_dir, f"history_{args.model}_{args.name}.csv"), index=False)
+    df.to_csv(os.path.join(plots_dir, f"history_{args.name}.csv"), index=False)
     
-    # Plot
-    save_plots(history, plots_dir, f"{args.model}_{args.name}")
+    save_plots(history, plots_dir, f"{args.name}")
+    logging.info("Training Complete.")
 
 if __name__ == "__main__":
     main()

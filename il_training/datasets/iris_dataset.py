@@ -1,104 +1,101 @@
 import os
-import cv2
+import json
+import glob
 import torch
-import numpy as np
-import pickle
 from torch.utils.data import Dataset
-from torchvision import transforms
+from PIL import Image
+import torchvision.transforms as transforms
+import logging
 
-# Standard ImageNet normalization for ResNet backbones
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD  = [0.229, 0.224, 0.225]
-
-class EpisodeWindowDataset(Dataset):
-    def __init__(self, data_path, seq_len, future_steps):
+class IRISClipDataset(Dataset):
+    def __init__(self, root_dir, image_size=(224, 224)):
         """
         Args:
-            data_path: Path to the .pkl file containing the list of episodes
-            seq_len: History length
-            future_steps: Prediction horizon
+            root_dir: Path to the split folder (e.g., /media/jerry/SSD/final_data/train)
+            image_size: Tuple for resizing images (224, 224) for ResNet.
         """
-        if not os.path.exists(data_path):
-            raise FileNotFoundError(f"Data file not found at: {data_path}")
-            
-        with open(data_path, "rb") as f:
-            self.episodes = pickle.load(f)
-            
-        self.seq_len = seq_len
-        self.future_steps = future_steps
-        self.samples = []
+        self.root_dir = root_dir
+        self.image_size = image_size
         
-        # Pre-compute valid windows
-        for ei, ep in enumerate(self.episodes):
-            T = ep["joints"].shape[0]
-            # Ensure we have enough frames for history + future
-            max_start = T - (seq_len + future_steps) + 1
-            for s in range(max_start):
-                self.samples.append((ei, s))
+        logging.info(f"Scanning for clips in: {root_dir}")
+        
+        # 1. Try finding folders with specific pattern
+        self.clip_dirs = sorted(glob.glob(os.path.join(root_dir, "*_clip_*")))
+        
+        # 2. If empty, grab ANY subdirectories (fallback)
+        if len(self.clip_dirs) == 0:
+            logging.warning(f"No folders with '_clip_' found in {root_dir}. Looking for ANY subfolders...")
+            self.clip_dirs = [
+                os.path.join(root_dir, d) for d in os.listdir(root_dir) 
+                if os.path.isdir(os.path.join(root_dir, d))
+            ]
+            self.clip_dirs = sorted(self.clip_dirs)
 
-        # Transforms: Resize -> Tensor -> Normalize
+        # 3. Check again
+        if len(self.clip_dirs) == 0:
+            # Helpful error message listing contents of directory
+            try:
+                contents = os.listdir(root_dir)
+                logging.error(f"Directory contents of {root_dir}: {contents[:5]} ...")
+            except Exception:
+                logging.error(f"Could not read directory {root_dir}")
+                
+            raise FileNotFoundError(
+                f"No subfolders found in {root_dir}. \n"
+                f"Make sure you point to the parent folder containing the clips directly.\n"
+                f"Example: If your path is .../train/episode_0_clip_0, your root_dir must be .../train"
+            )
+
+        logging.info(f"Found {len(self.clip_dirs)} valid clips.")
+
+        # Standard ImageNet normalization for ResNet
         self.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((128, 128)), # Matches your model input size
-            transforms.ToTensor(),         # Scales to [0,1]
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                                 std=[0.229, 0.224, 0.225])
         ])
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.clip_dirs)
 
     def __getitem__(self, idx):
-        ei, s = self.samples[idx]
-        ep = self.episodes[ei]
+        clip_path = self.clip_dirs[idx]
+        
+        # 1. Load Robot Data (JSON)
+        json_path = os.path.join(clip_path, "robot", "data.json")
+        if not os.path.exists(json_path):
+             # Skip broken clips or raise error
+             raise FileNotFoundError(f"Missing data.json in {clip_path}")
 
-        rgb_seq = []
-        joint_seq = []
-
-        # 1. Load History (Sequence)
-        for i in range(self.seq_len):
-            img_path = os.path.join(ep["rgb_dir"], ep["rgb_files"][s + i])
+        with open(json_path, 'r') as f:
+            data = json.load(f)
             
+        joint_seq = torch.tensor(data["joint_seq"], dtype=torch.float32)
+        fut_delta = torch.tensor(data["fut_delta"], dtype=torch.float32)
+
+        # 2. Load RGB Sequence (Inputs)
+        rgb_tensors = []
+        # Robust loading: check how many inputs we actually have if < 8
+        num_frames = len(joint_seq) 
+        
+        for i in range(num_frames):
+            img_path = os.path.join(clip_path, "rgb", f"input_{i:04d}.png")
             if not os.path.exists(img_path):
-                 raise FileNotFoundError(f"Image missing: {img_path}")
-
-            img = cv2.imread(img_path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                 raise FileNotFoundError(f"Missing image {img_path}")
             
-            # Apply transforms (includes normalization)
-            img_tensor = self.transform(img)
-            rgb_seq.append(img_tensor)
+            img = Image.open(img_path).convert("RGB")
+            rgb_tensors.append(self.transform(img))
             
-            joint_seq.append(ep["joints"][s + i])
+        rgb_seq = torch.stack(rgb_tensors)
 
-        rgb_seq = torch.stack(rgb_seq)
-        joint_seq = torch.tensor(np.array(joint_seq), dtype=torch.float32)
-
-        # 2. Compute Future Deltas (Ground Truth for Training)
-        # Current position at end of history
-        q_curr = ep["joints"][s + self.seq_len - 1]
+        # 3. Load Goal Image
+        goal_path = os.path.join(clip_path, "rgb", "goal.png")
+        if not os.path.exists(goal_path):
+             # Fallback: use last frame
+             goal_path = os.path.join(clip_path, "rgb", f"input_{num_frames-1:04d}.png")
         
-        # Future positions
-        q_future = ep["joints"][s + self.seq_len : s + self.seq_len + self.future_steps]
-        
-        # We predict Delta q
-        fut_delta = torch.tensor(q_future - q_curr[None, :], dtype=torch.float32)
+        goal_img = Image.open(goal_path).convert("RGB")
+        goal_tensor = self.transform(goal_img)
 
-        # 3. Load Goal Image (Last image of the trajectory)
-        # We assume the last file in 'rgb_files' represents the goal state
-        goal_img_path = os.path.join(ep["rgb_dir"], ep["rgb_files"][-1])
-        
-        if not os.path.exists(goal_img_path):
-             raise FileNotFoundError(f"Goal Image missing: {goal_img_path}")
-
-        goal_img_raw = cv2.imread(goal_img_path)
-        goal_img_raw = cv2.cvtColor(goal_img_raw, cv2.COLOR_BGR2RGB)
-        
-        # Apply SAME transforms as the input sequence
-        goal_image = self.transform(goal_img_raw)
-
-        # Return: 
-        # 1. Sequence Vision (Input)
-        # 2. Sequence Joints (Input)
-        # 3. Goal Image (Input Condition)
-        # 4. Future Action Delta (Ground Truth Target)
-        return rgb_seq, joint_seq, goal_image, fut_delta
+        return rgb_seq, joint_seq, goal_tensor, fut_delta
