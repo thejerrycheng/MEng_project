@@ -762,101 +762,134 @@ Each sample provides:
 
 ### 🏋️ Training
 
-Train an ACT policy using the main training script:
+We use a robust training pipeline that supports **Auto-Resume**, **SSD Checkpointing**, and **Multi-Dataset Loading**.
+
+#### 1. Start (or Continue) Training
+
+To start training, run the command below.
+
+> **✨ Auto-Resume Feature:** If training is interrupted (e.g., power outage, Ctrl+C), simply **run the exact same command again**. The script automatically detects existing checkpoints and history files, loads the weights, and resumes from the correct epoch.
 
 ```bash
 cd il_training
 python train.py \
-  --data_dir /media/jerry/SSD/processed_data \
-  --name iris_goal_exp1 \
-  --epochs 80 \
-  --batch_size 32
+  --data_roots /media/jerry/SSD/final_data_mixed \
+  --name iris_cvae_mixed_v1 \
+  --model transformer_cvae \
+  --loss loss_kl \
+  --checkpoint_dir /media/jerry/SSD/checkpoints \
+  --batch_size 32 \
+  --epochs 200 \
+  --num_workers 8
+
 ```
 
-**Outputs**
+#### 2. Specialized Training (No Obstacles)
 
-```
-checkpoints/best_iris_goal_exp1.pth
-checkpoints/final_iris_goal_exp1.pth
-plots/history_iris_goal_exp1.csv
-plots/loss_iris_goal_exp1.png
-```
-
----
-
-### 📊 Training Curves
-
-<p align="center">
-  <img src="images/training_loss.png" width="60%">
-</p>
-
----
-
-### 🧪 Evaluation
-
-Evaluate a trained model on held‑out test episodes:
+To train a policy specifically on the "No Obstacle" dataset:
 
 ```bash
-cd il_training
-python test.py
+python train.py \
+  --data_roots /media/jerry/SSD/final_data_no_obstacle \
+  --name iris_cvae_no_obs_v1 \
+  --model transformer_cvae \
+  --loss loss_kl \
+  --checkpoint_dir /media/jerry/SSD/checkpoints_no_obstacle
+
 ```
 
-Evaluation pipeline:
+#### 3. Continue Training of the Previous Model or Finetuning 
 
-1. Loads trained checkpoint
-2. Predicts final joint state
-3. Applies forward kinematics
-4. Computes Cartesian goal error
+To train a policy what was previousluy interrupted or fine-tune baesd on an existing trained model: 
+
+```bash
+python continue_train.py \
+   --data_roots /media/jerry/SSD/final_data_mixed \
+   --name iris_cvae_mixed_v1 \
+   --model transformer_cvae \
+   --loss loss_kl \
+   --checkpoint_dir /media/jerry/SSD/new_mixed_checkpoints \
+   --batch_size 32 \
+   --epochs 200 \
+   --num_workers 8
+
+```
 
 ---
 
-### 🧾 Configuration Files
+### 📂 Where is Everything Saved?
 
-Training hyperparameters are defined in:
+We split outputs between the SSD (for speed/capacity) and the local disk (for easy monitoring).
 
-```
-configs/train.yaml
-```
-
-Includes model size, training schedule, and loss weights.
+| File Type | Location | Description |
+| --- | --- | --- |
+| **Checkpoints** | `/media/jerry/SSD/checkpoints/` | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
+| **Loss Plots** | `il_training/plots/loss_*.png` | Visual graphs of Train vs Val loss. |
+| **History Logs** | `il_training/plots/history_*.csv` | Raw CSV data of loss per epoch (used for auto-resume). |
 
 ---
 
-### 🏁 Summary Pipeline
+### 🧪 Offline Testing & Evaluation
 
-Processed Episodes → Dataset → ACT Model → ACT Loss → Training → Checkpoints → Evaluation
+Before running on the robot, evaluate the model's performance on held-out test data using our metrics script. This calculates MSE, KL Divergence, and prediction error.
 
-## 7️⃣ Sim-to-Real Deployment
+```bash
+python metrics_test.py \
+  --test_data /media/jerry/SSD/final_data_mixed/test \
+  --models /media/jerry/SSD/checkpoints/best_iris_cvae_mixed_v1.pth \
+  --names "Mixed Policy"
 
-### ▶️ Quick start for sim2real:
+```
 
-To test out the inverse kinematics, run the following command. The script will compute the joint position using optimization in sim and command the robot via ROS.
+**To visualize the dataset distributions (for papers):**
+
+```bash
+python visualize_paper_final_tight.py \
+  --data_dir /media/jerry/SSD/final_data_mixed \
+  --split train
+
+```
+
+---
+
+### 🦾 Sim-to-Real Deployment
+
+Once you have a trained policy (e.g., `best_iris_cvae_mixed_v1.pth`), deploy it to the real IRIS robot.
+
+#### 1. Hardware Check (Inverse Kinematics)
+
+First, verify the robot communicates correctly by running the IK teleop bridge:
 
 ```bash
 rosrun unitree_arm_ros keyboard_ik_teleop.py
+
 ```
 
-<p align="center">
-  <img src="videos/inverse_kinematics-ezgif.com-video-to-gif-converter.gif" width="60%">
-</p>
+#### 2. Execute Learned Policy
 
-Planned or learned trajectories can be:
-
-- Previewed in MuJoCo
-- Executed on the real robot
-- Logged via ROS
-- Replayed in simulation
-
-### ▶️ Execute Learned Policy
+Run the inference script. This loads the model, connects to the camera (RealSense/Webcam), and streams actions to the robot via ROS.
 
 ```bash
-python il_training/deploymemnt.py --model models/best_act_iris_goal_exp1.pth
+python deployment.py \
+  --model_path /media/jerry/SSD/checkpoints/best_iris_cvae_mixed_v1.pth \
+  --model_type transformer_cvae \
+  --camera_id 0
+
 ```
 
 <p align="center">
-  <img src="docs/media/real_robot.gif" width="75%">
+<img src="docs/media/real_robot_inference.gif" width="75%">
 </p>
 
+---
+
+### 📊 Training Pipeline Summary
+
+1. **Input:** Raw Episodes → `processed_data` (on SSD).
+2. **Loader:** `IRISClipDataset` samples sequence chunks () and future goals.
+3. **Model:** `ACT_CVAE_Optimized` (Transformer + CVAE) predicts actions.
+4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
+5. **Output:** `best_iris_cvae_mixed_v1.pth` is ready for deployment.
 ---
 
 ## 💻 System Requirements
@@ -866,7 +899,7 @@ python il_training/deploymemnt.py --model models/best_act_iris_goal_exp1.pth
 - ROS Noetic
 - Intel RealSense RGB-D camera
 - Unitree GO-M8010-6 actuators
-- NVIDIA GPU recommended for IL training
+- NVIDIA GPU recommended for IL training - Training time takes about 30 hours on Nvidia 4090 GPU for 200 epoch
 
 ---
 

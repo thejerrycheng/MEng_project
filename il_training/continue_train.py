@@ -8,9 +8,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import importlib
 import time
+import glob
+import re
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, ConcatDataset, random_split
+
+# Import the Dataset
 from datasets.iris_dataset import IRISClipDataset
 
 # ---------------------
@@ -46,7 +51,6 @@ def load_class_from_module(module_type, module_name, class_name):
         raise e
 
 def save_plots(history, plots_dir, name):
-    if len(history['train_loss']) == 0: return
     plt.figure(figsize=(10, 5))
     plt.plot(history['train_loss'], label='Train Loss')
     plt.plot(history['val_loss'], label='Val Loss')
@@ -57,21 +61,24 @@ def save_plots(history, plots_dir, name):
     plt.grid(True)
     plt.savefig(os.path.join(plots_dir, f"loss_{name}.png"))
     plt.close()
+    logging.info(f"Saved plot to {plots_dir}/loss_{name}.png")
 
 def main():
     parser = argparse.ArgumentParser()
     
     # Data & Experiment
-    parser.add_argument("--data_roots", type=str, nargs='+', required=True, help="List of root dirs")
+    parser.add_argument("--data_roots", type=str, nargs='+', required=True, 
+                        help="List of root dirs (e.g. /path/to/data1 /path/to/data2)")
     parser.add_argument("--name", type=str, required=True, help="Experiment Name")
     parser.add_argument("--model", type=str, required=True, help=f"Options: {list(MODEL_MAPPING.keys())}")
     parser.add_argument("--loss", type=str, required=True, help=f"Options: {list(LOSS_MAPPING.keys())}")
-    parser.add_argument("--checkpoint_dir", type=str, default="/media/jerry/SSD/checkpoints", help="Save dir")
+    parser.add_argument("--checkpoint_dir", type=str, default="/media/jerry/SSD/checkpoints", 
+                        help="Directory to save/load model checkpoints")
 
     # Hyperparams
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--epochs", type=int, default=200) # Ensure this matches your target total epochs
     parser.add_argument("--num_workers", type=int, default=8)
     
     # Model Params
@@ -90,6 +97,7 @@ def main():
     # Directories
     models_dir = args.checkpoint_dir 
     plots_dir = "plots"
+    
     os.makedirs(models_dir, exist_ok=True)
     os.makedirs(plots_dir, exist_ok=True)
 
@@ -97,8 +105,9 @@ def main():
     logging.info(f"Using device: {device}")
 
     # ---------------------
-    # Data Loading
+    # Multi-Source Data Loading
     # ---------------------
+    logging.info("--- Data Loading Phase ---")
     train_datasets = []
     val_datasets = []
 
@@ -106,26 +115,33 @@ def main():
         train_path = os.path.join(root, "train")
         val_path = os.path.join(root, "val")
         
+        logging.info(f"Scanning root: {root}")
+
         if os.path.exists(train_path):
             try:
                 ds = IRISClipDataset(train_path)
                 train_datasets.append(ds)
+                logging.info(f"  [+] Loaded {len(ds)} train clips from {train_path}")
             except Exception as e:
-                logging.warning(f"Failed to load {train_path}: {e}")
+                logging.warning(f"  [-] Failed to load {train_path}: {e}")
 
         if os.path.exists(val_path):
             try:
                 ds = IRISClipDataset(val_path)
-                if len(ds) > 0: val_datasets.append(ds)
-            except Exception: pass 
+                if len(ds) > 0:
+                    val_datasets.append(ds)
+                    logging.info(f"  [+] Loaded {len(ds)} val clips from {val_path}")
+            except Exception:
+                pass 
 
-    if not train_datasets: raise RuntimeError("No training datasets loaded!")
+    if not train_datasets:
+        raise RuntimeError("No training datasets loaded!")
 
     full_train_ds = ConcatDataset(train_datasets)
     full_val_ds = ConcatDataset(val_datasets) if val_datasets else None
 
     if full_val_ds is None or len(full_val_ds) == 0:
-        logging.warning("No validation data found! Splitting...")
+        logging.warning("⚠️  No validation data found! Performing split...")
         total_len = len(full_train_ds)
         train_len = int(0.9 * total_len)
         val_len = total_len - train_len
@@ -134,7 +150,8 @@ def main():
             generator=torch.Generator().manual_seed(42)
         )
 
-    logging.info(f"Train Samples: {len(full_train_ds)} | Val Samples: {len(full_val_ds)}")
+    logging.info(f"TOTAL Train Samples: {len(full_train_ds)}")
+    logging.info(f"TOTAL Val Samples:   {len(full_val_ds)}")
 
     train_loader = DataLoader(full_train_ds, batch_size=args.batch_size, shuffle=True, 
                               num_workers=args.num_workers, pin_memory=True)
@@ -142,8 +159,10 @@ def main():
                             num_workers=args.num_workers, pin_memory=True)
 
     # ---------------------
-    # Model & Loss
+    # Model & Loss Init
     # ---------------------
+    logging.info("--- Model Initialization ---")
+    
     ModelClass = load_class_from_module("models", args.model, MODEL_MAPPING[args.model])
     
     if "CVAE" in ModelClass.__name__:
@@ -166,13 +185,13 @@ def main():
         criterion = LossClass()
 
     # ---------------------
-    # RESUME LOGIC (The Fix)
+    # RESUME LOGIC
     # ---------------------
     start_epoch = 0
     best_val_loss = float('inf')
     history = {'train_loss': [], 'val_loss': []}
-    
-    # 1. Try Load History CSV
+
+    # Load history if exists
     history_path = os.path.join(plots_dir, f"history_{args.name}.csv")
     if os.path.exists(history_path):
         try:
@@ -180,34 +199,34 @@ def main():
             history['train_loss'] = df_hist['train_loss'].tolist()
             history['val_loss'] = df_hist['val_loss'].tolist()
             start_epoch = len(history['train_loss'])
-            if len(history['val_loss']) > 0:
-                best_val_loss = min(history['val_loss'])
-            logging.info(f"Found history file. Resuming epoch counter at {start_epoch + 1}")
+            best_val_loss = min(history['val_loss']) if len(history['val_loss']) > 0 else float('inf')
+            logging.info(f"Loaded history. Resuming from Epoch {start_epoch}")
         except Exception as e:
-            logging.warning(f"Found history file but failed to read: {e}")
+            logging.warning(f"Could not load history file: {e}")
 
-    # 2. Try Load Weights (Best or Latest)
-    # Priority: Latest > Best > None
-    latest_path = os.path.join(models_dir, f"latest_{args.name}.pth")
-    best_path = os.path.join(models_dir, f"best_{args.name}.pth")
+    # Load weights
+    # We look for 'best_*.pth' to get the weights, but if you have a 'latest' or 'checkpoint' file that saves state, use that.
+    # Since the previous script only saved 'best' and 'final', we have to load 'best'.
+    # WARNING: Loading 'best' resets the model to the best epoch, not necessarily the *last* epoch run.
+    # Ideally, training scripts should save a 'latest.pth'. 
+    # Here we will try to load 'best_{name}.pth' as the starting point.
     
-    load_path = None
-    if os.path.exists(latest_path):
-        load_path = latest_path
-    elif os.path.exists(best_path):
-        load_path = best_path
-        
-    if load_path:
-        logging.info(f"Resuming weights from: {load_path}")
-        checkpoint = torch.load(load_path, map_location=device)
+    checkpoint_path = os.path.join(models_dir, f"best_{args.name}.pth")
+    if os.path.exists(checkpoint_path):
+        logging.info(f"Loading checkpoint: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint)
+        # Note: If you didn't save optimizer state, we restart optimizer. 
+        # Ideally, save {'model': ..., 'optimizer': ..., 'epoch': ...}
+        logging.info("Checkpoint loaded successfully.")
     else:
-        logging.info("No checkpoint found. Starting training from scratch.")
+        logging.warning(f"No checkpoint found at {checkpoint_path}. Starting from scratch (unless this was unintended).")
+        start_epoch = 0 # Reset if no weights found
 
     # ---------------------
     # Training Loop
     # ---------------------
-    logging.info(f"--- Starting/Resuming Training (Epoch {start_epoch+1}/{args.epochs}) ---")
+    logging.info(f"--- Resuming Training from Epoch {start_epoch+1} ---")
     
     start_time = time.time()
 
@@ -241,8 +260,9 @@ def main():
             
             if batch_idx % 10 == 0:
                 log_str = f"Epoch {epoch+1} [{batch_idx}/{len(train_loader)}] Loss: {loss.item():.4f}"
-                if isinstance(loss_dict, dict) and 'kl' in loss_dict:
-                    log_str += f" | MSE: {loss_dict.get('mse',0):.4f} | KL: {loss_dict.get('kl',0):.4f}"
+                if isinstance(loss_dict, dict):
+                    if 'mse' in loss_dict: log_str += f" | MSE: {loss_dict['mse']:.4f}"
+                    if 'kl' in loss_dict: log_str += f" | KL: {loss_dict['kl']:.4f}"
                 logging.info(log_str)
 
         avg_train = train_loss_acc / batch_count
@@ -277,27 +297,25 @@ def main():
         epoch_dur = time.time() - start_time
         start_time = time.time() 
         
-        logging.info(f"=== Epoch {epoch+1} Done ({epoch_dur:.1f}s) | Train: {avg_train:.5f} | Val: {avg_val:.5f} ===")
+        logging.info(f"=== Epoch {epoch+1}/{args.epochs} Completed in {epoch_dur:.1f}s ===")
+        logging.info(f"    Train Loss: {avg_train:.5f}")
+        logging.info(f"    Val Loss:   {avg_val:.5f}")
 
-        # Update History
         history['train_loss'].append(avg_train)
         history['val_loss'].append(avg_val)
 
-        # --- KEY FIX: SAVE CSV IMMEDIATELY ---
-        df = pd.DataFrame(history)
-        df.to_csv(os.path.join(plots_dir, f"history_{args.name}.csv"), index=False)
-        save_plots(history, plots_dir, f"{args.name}")
-
-        # Save Best Model
         if avg_val < best_val_loss:
             best_val_loss = avg_val
-            torch.save(model.state_dict(), os.path.join(models_dir, f"best_{args.name}.pth"))
-            logging.info(f"    -> Saved Best Model")
-
-        # Save Latest Model (For resuming exactly)
-        torch.save(model.state_dict(), os.path.join(models_dir, f"latest_{args.name}.pth"))
+            save_path = os.path.join(models_dir, f"best_{args.name}.pth")
+            torch.save(model.state_dict(), save_path)
+            logging.info(f"    -> New Best Model Saved!")
+        
+        # Save History every epoch just in case
+        df = pd.DataFrame(history)
+        df.to_csv(os.path.join(plots_dir, f"history_{args.name}.csv"), index=False)
 
     torch.save(model.state_dict(), os.path.join(models_dir, f"final_{args.name}.pth"))
+    save_plots(history, plots_dir, f"{args.name}")
     logging.info("Training Complete.")
 
 if __name__ == "__main__":

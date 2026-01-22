@@ -1,4 +1,5 @@
 import os
+import argparse
 import json
 import random
 import numpy as np
@@ -6,13 +7,31 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import mujoco
 from tqdm import tqdm
+import seaborn as sns
 
 # ==================================================
-# Configuration
+# CONFIGURATION
 # ==================================================
-DATA_DIR = "/media/jerry/SSD/final_data_no_obstacle"
-SPLIT = "train"         
-MAX_CLIPS = 5000       
+FIG_WIDTH = 3.5   # IEEE Single Column
+FIG_HEIGHT = 2.0  # Reduced Height
+DPI = 300
+
+# Fonts: Helvetica/Arial Bold, Size 7
+plt.rcParams.update({
+    "text.usetex": False,
+    "font.family": "sans-serif",
+    "font.sans-serif": ["Helvetica", "Arial", "DejaVu Sans", "sans-serif"],
+    "font.weight": "bold",
+    "axes.labelweight": "bold",
+    "axes.titleweight": "bold",
+    "font.size": 7,
+    "axes.titlesize": 7,
+    "axes.labelsize": 6,
+    "legend.fontsize": 5,
+    "xtick.labelsize": 5,
+    "ytick.labelsize": 5,
+    "lines.linewidth": 0.8
+})
 
 # ==================================================
 # 1. Kinematics Helper
@@ -20,202 +39,139 @@ MAX_CLIPS = 5000
 class IRISKinematics:
     def __init__(self):
         self.link_configs = [
-            {'pos': [0, 0, 0.2487],         'euler': [0, 0, 0],      'axis': [0, 0, 1]},
-            {'pos': [0.0218, 0, 0.059],     'euler': [0, 90, 180],   'axis': [0, 0, 1]},
-            {'pos': [0.299774, 0, -0.0218], 'euler': [0, 0, 0],      'axis': [0, 0, 1]},
-            {'pos': [0.02, 0, 0],           'euler': [0, 90, 0],     'axis': [0, 0, 1]},
-            {'pos': [0, 0, 0.315],          'euler': [0, -90, 0],    'axis': [0, 0, 1]},
-            {'pos': [0.042824, 0, 0],       'euler': [0, 90, 180],   'axis': [0, 0, 1]},
-            {'pos': [0, 0, 0],              'euler': [0, 0, 0],      'axis': [0, 0, 0]} 
+            {'pos': [0, 0, 0.2487], 'euler': [0, 0, 0], 'axis': [0, 0, 1]},
+            {'pos': [0.0218, 0, 0.059], 'euler': [0, 90, 180], 'axis': [0, 0, 1]},
+            {'pos': [0.299774, 0, -0.0218], 'euler': [0, 0, 0], 'axis': [0, 0, 1]},
+            {'pos': [0.02, 0, 0], 'euler': [0, 90, 0], 'axis': [0, 0, 1]},
+            {'pos': [0, 0, 0.315], 'euler': [0, -90, 0], 'axis': [0, 0, 1]},
+            {'pos': [0.042824, 0, 0], 'euler': [0, 90, 180], 'axis': [0, 0, 1]},
+            {'pos': [0, 0, 0], 'euler': [0, 0, 0], 'axis': [0, 0, 0]} 
         ]
 
     def get_local_transform(self, cfg, q_rad):
-        T_pos = np.eye(4)
-        T_pos[:3, 3] = cfg['pos']
-
+        T_pos = np.eye(4); T_pos[:3, 3] = cfg['pos']
         R_fixed = np.eye(3)
         if any(cfg['euler']):
-            quat = np.zeros(4)
-            mujoco.mju_euler2Quat(quat, np.deg2rad(cfg['euler']), 'xyz')
-            mat = np.zeros(9)
-            mujoco.mju_quat2Mat(mat, quat)
+            quat = np.zeros(4); mujoco.mju_euler2Quat(quat, np.deg2rad(cfg['euler']), 'xyz')
+            mat = np.zeros(9); mujoco.mju_quat2Mat(mat, quat)
             R_fixed = mat.reshape(3, 3)
-        
-        T_rot_fixed = np.eye(4)
-        T_rot_fixed[:3, :3] = R_fixed
-
+        T_rot_fixed = np.eye(4); T_rot_fixed[:3, :3] = R_fixed
         T_joint = np.eye(4)
         if np.any(cfg['axis']):
-            quat_j = np.zeros(4)
-            mujoco.mju_axisAngle2Quat(quat_j, np.array(cfg['axis']), q_rad)
-            mat_j = np.zeros(9)
-            mujoco.mju_quat2Mat(mat_j, quat_j)
+            quat_j = np.zeros(4); mujoco.mju_axisAngle2Quat(quat_j, np.array(cfg['axis']), q_rad)
+            mat_j = np.zeros(9); mujoco.mju_quat2Mat(mat_j, quat_j)
             R_joint = mat_j.reshape(3, 3)
             T_joint[:3, :3] = R_joint
-
         return T_pos @ T_rot_fixed @ T_joint
 
     def forward_point(self, q_rad):
-        """Computes singular EE position for one joint config"""
-        T_accumulated = np.eye(4)
-        for i in range(6): 
-            T_link = self.get_local_transform(self.link_configs[i], q_rad[i])
-            T_accumulated = T_accumulated @ T_link
-        
-        T_ee = self.get_local_transform(self.link_configs[6], 0)
-        T_accumulated = T_accumulated @ T_ee
-        return T_accumulated[:3, 3]
+        T = np.eye(4)
+        for i in range(6): T = T @ self.get_local_transform(self.link_configs[i], q_rad[i])
+        T = T @ self.get_local_transform(self.link_configs[6], 0)
+        return T[:3, 3]
 
 # ==================================================
 # 2. Data Loading
 # ==================================================
-def load_dataset_stats(target_dir):
+def load_data(target_dir, max_clips=5000):
     clips = [d for d in os.listdir(target_dir) if os.path.isdir(os.path.join(target_dir, d))]
-    
-    if not clips:
-        return None
-
     random.shuffle(clips)
-    if MAX_CLIPS and len(clips) > MAX_CLIPS:
-        clips = clips[:MAX_CLIPS]
-
-    print(f"Loading data from {len(clips)} clips...")
-
-    all_joints = []
-    all_deltas = []
-    all_ee_positions = []
-    
+    if max_clips: clips = clips[:max_clips]
+    print(f"Loading {len(clips)} clips...")
     fk = IRISKinematics()
+    ee_pos, joints, deltas, labels = [], [], [], []
 
-    for clip_name in tqdm(clips):
-        json_path = os.path.join(target_dir, clip_name, "robot", "data.json")
-        if not os.path.exists(json_path): continue
+    for c in tqdm(clips):
+        path = os.path.join(target_dir, c, "robot", "data.json")
+        if not os.path.exists(path): continue
+        is_obs = 1 if "obstacle" in c.lower() else 0
+        with open(path) as f: d = json.load(f)
+        j = np.array(d['joint_seq'])[::2] 
+        act = np.array(d['fut_delta'])[::2]
+        joints.append(j); deltas.append(act)
+        ee_pos.append(fk.forward_point(j[-1]))
+        labels.append(is_obs)
 
-        with open(json_path, 'r') as f:
-            data = json.load(f)
-        
-        # Joints (History)
-        joints = np.array(data['joint_seq'])
-        all_joints.append(joints)
-        
-        # Deltas (Future Actions)
-        deltas = np.array(data['fut_delta']) 
-        all_deltas.append(deltas) 
-        
-        # EE Position
-        current_q = joints[-1]
-        ee_pos = fk.forward_point(current_q)
-        all_ee_positions.append(ee_pos)
-
-    return {
-        "joints": np.vstack(all_joints),         # (Total_History_Steps, 6)
-        "deltas": np.vstack(all_deltas),         # (Total_Future_Steps, 6)
-        "ee_pos": np.array(all_ee_positions)
-    }
+    return {"ee": np.array(ee_pos), "joints": np.vstack(joints),
+            "deltas": np.vstack(deltas), "labels": np.array(labels)}
 
 # ==================================================
 # 3. Plotting
 # ==================================================
 def main():
-    target_dir = os.path.join(DATA_DIR, SPLIT)
-    if not os.path.exists(target_dir):
-        print(f"Error: {target_dir} not found.")
-        return
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--split", type=str, default="train")
+    parser.add_argument("--max_clips", type=int, default=3000)
+    args = parser.parse_args()
 
-    stats = load_dataset_stats(target_dir)
-    if not stats:
-        print("No data loaded.")
-        return
+    data = load_data(os.path.join(args.data_dir, args.split), args.max_clips)
 
-    # -----------------------------------------------------------
-    # Plot 1: 3D Workspace Coverage (Equal Aspect Ratio)
-    # -----------------------------------------------------------
-    fig1 = plt.figure(figsize=(10, 8))
-    ax1 = fig1.add_subplot(111, projection='3d')
+    fig = plt.figure(figsize=(FIG_WIDTH, FIG_HEIGHT))
     
-    pts = stats["ee_pos"]
-    p1 = ax1.scatter(pts[:,0], pts[:,1], pts[:,2], c=pts[:,2], cmap='viridis', s=5, alpha=0.6)
-    
-    ax1.set_xlabel('X (m)')
-    ax1.set_ylabel('Y (m)')
-    ax1.set_zlabel('Z (m)')
-    ax1.set_title(f'Figure 1: Workspace (Equal Aspect Ratio)\nTrue Physical Proportions')
-    fig1.colorbar(p1, label='Height (Z)')
+    # 1 Row, 3 Cols. Give Panel A more width (1.4x)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.4, 1, 1], wspace=0.1, 
+                          left=0.05, right=0.99, top=0.92, bottom=0.15)
 
-    # Force Equal Aspect Ratio
-    mid_x = np.mean(pts[:,0])
-    mid_y = np.mean(pts[:,1])
-    mid_z = np.mean(pts[:,2])
-    max_range = np.array([
-        pts[:,0].max() - pts[:,0].min(),
-        pts[:,1].max() - pts[:,1].min(),
-        pts[:,2].max() - pts[:,2].min()
-    ]).max() / 2.0
+    # --- PANEL A: 3D Workspace ---
+    ax1 = fig.add_subplot(gs[0, 0], projection='3d')
+    
+    
+    pts = data['ee']; lbl = data['labels']
+    free = pts[lbl==0]; obs = pts[lbl==1]
+    if len(free)>2000: free = free[np.random.choice(len(free), 2000, replace=False)]
+    if len(obs)>2000: obs = obs[np.random.choice(len(obs), 2000, replace=False)]
 
-    ax1.set_xlim(mid_x - max_range, mid_x + max_range)
-    ax1.set_ylim(mid_y - max_range, mid_y + max_range)
-    ax1.set_zlim(mid_z - max_range, mid_z + max_range)
+    ax1.scatter(free[:,0], free[:,1], free[:,2], c='#1f77b4', s=0.5, alpha=0.1, label='Free')
+    ax1.scatter(obs[:,0], obs[:,1], obs[:,2], c='#d62728', s=1, alpha=0.4, label='Obs')
     
-    plt.show()
+    ax1.view_init(elev=30, azim=45)
+    ax1.set_xlabel('X', labelpad=-12); ax1.set_ylabel('Y', labelpad=-12); ax1.set_zlabel('Z', labelpad=-12)
+    ax1.set_title("(a) Workspace", pad=-5, loc='left')
+    ax1.tick_params(axis='both', which='major', pad=-6, labelsize=5)
+    ax1.dist = 7
+    ax1.legend(loc='upper left', frameon=False, bbox_to_anchor=(-0.2, 1.05), handletextpad=0.1)
 
-    # -----------------------------------------------------------
-    # Plot 2: 3D Workspace Coverage (Unequal/Auto Aspect Ratio)
-    # -----------------------------------------------------------
-    fig2 = plt.figure(figsize=(10, 8))
-    ax2 = fig2.add_subplot(111, projection='3d')
-    
-    # Just scatter, let matplotlib handle scale
-    p2 = ax2.scatter(pts[:,0], pts[:,1], pts[:,2], c=pts[:,2], cmap='plasma', s=5, alpha=0.6)
-    
-    ax2.set_xlabel('X (m)')
-    ax2.set_ylabel('Y (m)')
-    ax2.set_zlabel('Z (m)')
-    ax2.set_title(f'Figure 2: Workspace (Auto/Unequal Aspect Ratio)\nStretched to fit data')
-    fig2.colorbar(p2, label='Height (Z)')
-    
-    plt.show()
-
-    # -----------------------------------------------------------
-    # Plot 3: Joint Angle Histograms
-    # -----------------------------------------------------------
-    fig3, axes3 = plt.subplots(2, 3, figsize=(15, 10))
-    fig3.suptitle('Figure 3: Joint Position Distributions (Radians)', fontsize=16)
-    
-    joint_data = stats["joints"] 
-    joint_names = [f"Joint {i+1}" for i in range(6)]
-    
-    axes3 = axes3.flatten()
+    # --- PANEL B: Joint Angles ---
+    ax2 = fig.add_subplot(gs[0, 1])
+    J = data['joints']
+    j_long = []
     for i in range(6):
-        ax = axes3[i]
-        ax.hist(joint_data[:, i], bins=50, color='skyblue', edgecolor='black', alpha=0.7)
-        ax.set_title(joint_names[i])
-        ax.set_xlabel('Angle (rad)')
-        ax.set_ylabel('Count')
-        ax.grid(True, alpha=0.3)
+        vals = J[:, i]
+        if len(vals)>5000: vals=np.random.choice(vals,5000)
+        for v in vals: j_long.append({'rad': v, 'Joint': f"J{i+1}"})
     
-    plt.tight_layout()
-    plt.show()
-
-    # -----------------------------------------------------------
-    # Plot 4: Action Distribution Per Joint
-    # -----------------------------------------------------------
-    fig4, axes4 = plt.subplots(2, 3, figsize=(15, 10))
-    fig4.suptitle('Figure 4: Action Velocity Distributions (Deltas Per Joint)', fontsize=16)
+    import pandas as pd
+    sns.violinplot(data=pd.DataFrame(j_long), x='rad', y='Joint', ax=ax2, 
+                   inner="quart", linewidth=0.5, color="#abacae", saturation=0.7)
     
-    delta_data = stats["deltas"] 
+    ax2.set_title("(b) Joint Dist.", loc='left', pad=3)
+    ax2.set_xlabel("Rad", labelpad=2)
+    ax2.set_ylabel("") # Save space
+    ax2.grid(axis='x', linestyle='--', alpha=0.3)
     
-    axes4 = axes4.flatten()
+    # --- PANEL C: Action Velocity ---
+    ax3 = fig.add_subplot(gs[0, 2])
+    D = data['deltas']
+    d_long = []
     for i in range(6):
-        ax = axes4[i]
-        ax.hist(delta_data[:, i], bins=50, color='salmon', edgecolor='black', alpha=0.7)
-        
-        ax.set_title(f"Joint {i+1} Delta")
-        ax.set_xlabel('Delta (rad)')
-        ax.set_ylabel('Count (Log Scale)')
-        ax.set_yscale('log') 
-        ax.grid(True, alpha=0.3)
+        vals = D[:, i]
+        if len(vals)>5000: vals=np.random.choice(vals,5000)
+        for v in vals: d_long.append({'rad': v, 'Joint': f"J{i+1}"})
+            
+    sns.violinplot(data=pd.DataFrame(d_long), x='rad', y='Joint', ax=ax3, 
+                   inner="quart", linewidth=0.5, color="#ff9f9b", saturation=0.7)
     
-    plt.tight_layout()
+    ax3.set_title("(c) Action Vel.", loc='left', pad=3)
+    ax3.set_xlabel("Rad/Step", labelpad=2)
+    ax3.set_ylabel("")
+    ax3.set_yticklabels([]) # Hide Y labels (shared with B)
+    ax3.grid(axis='x', linestyle='--', alpha=0.3)
+
+    out_path = "dataset_single_row_tight.pdf"
+    plt.savefig(out_path, dpi=DPI)
+    plt.savefig(out_path.replace(".pdf", ".png"), dpi=DPI)
+    print(f"Saved to {out_path}")
     plt.show()
 
 if __name__ == "__main__":
