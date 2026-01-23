@@ -11,8 +11,8 @@ import argparse
 # ============================================================
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start", nargs=3, type=float, default=[0, 0.1, 0.3])
-    parser.add_argument("--end", nargs=3, type=float, default=[0, 0.5, 0.3])
+    parser.add_argument("--start", nargs=3, type=float, default=[0, 0.25, 0.3])
+    parser.add_argument("--end", nargs=3, type=float, default=[0.5, 0.25, 0.3])
     parser.add_argument("--num", type=int, default=10)
     parser.add_argument("--viz", action="store_true")
     parser.add_argument("--max_samples", type=int, default=10000)

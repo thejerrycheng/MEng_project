@@ -5,6 +5,7 @@ import os
 import csv
 import argparse
 import random
+import time
 
 # ============================================================
 # Path resolution
@@ -20,7 +21,7 @@ XML_PATH = os.path.join(
     "scene2.xml"
 )
 
-MAX_GEOMS = 15000  # High limit for complex RRT trees
+MAX_GEOMS = 20000  # Increased limit for clearer visuals
 
 # ============================================================
 # CSV loaders
@@ -31,7 +32,6 @@ def load_path_csv(path):
     with open(path, "r") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Coordinates are pulled directly from generated 'x', 'y', 'z' columns
             pos = np.array([float(row["x"]), float(row["y"]), float(row["z"])])
             waypoints.append(pos)
     return waypoints
@@ -50,7 +50,7 @@ def load_obstacles_csv(path):
     return obstacles
 
 # ============================================================
-# Environment Sync
+# Helper Functions
 # ============================================================
 def apply_obstacles(model, obstacles):
     """Overrides XML default positions with the generated CSV positions."""
@@ -62,21 +62,24 @@ def apply_obstacles(model, obstacles):
             quat = np.zeros(4)
             mujoco.mju_axisAngle2Quat(quat, np.array([0, 0, 1]), obs["yaw"])
             model.geom_quat[gid] = quat
-        else:
-            print(f"[WARN] Obstacle '{obs['name']}' in CSV not found in XML worldbody.")
 
-def get_random_color():
-    return np.array([random.random(), random.random(), random.random(), 0.7])
+def get_aesthetic_color():
+    # Generate bright, pastel-like colors (high value/saturation) for visibility
+    return np.array([
+        random.uniform(0.5, 1.0), 
+        random.uniform(0.5, 1.0), 
+        random.uniform(0.5, 1.0), 
+        0.6 # Semi-transparent
+    ])
 
 # ============================================================
 # Main visualization
 # ============================================================
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", type=str, required=True, help="Folder: random_rrt_dataset2")
-    parser.add_argument("--num", type=int, default=-1, help="Trajectories to show")
+    parser.add_argument("--path", type=str, required=True, help="Folder containing episodes")
+    parser.add_argument("--num", type=int, default=-1, help="Number of trajectories to show")
     parser.add_argument("--random", action="store_true", help="Shuffle episode selection")
-    parser.add_argument("--lines", action="store_true", help="Draw connecting lines")
     args = parser.parse_args()
 
     if not os.path.isdir(args.path):
@@ -92,55 +95,111 @@ def main():
         episode_dirs = episode_dirs[:args.num]
 
     # Load Model
-    model = mujoco.MjModel.from_xml_path(XML_PATH)
+    try:
+        model = mujoco.MjModel.from_xml_path(XML_PATH)
+    except ValueError:
+        print(f"[ERROR] Could not load XML at {XML_PATH}")
+        return
+        
     data = mujoco.MjData(model)
 
     trajectories = []
     for ep in episode_dirs:
         ep_root = os.path.join(args.path, ep)
-        traj = load_path_csv(os.path.join(ep_root, "path.csv"))
-        obs = load_obstacles_csv(os.path.join(ep_root, "obstacles.csv"))
+        traj_path = os.path.join(ep_root, "path.csv")
+        obs_path = os.path.join(ep_root, "obstacles.csv")
+        
+        traj = load_path_csv(traj_path)
+        obs = load_obstacles_csv(obs_path)
         
         if traj:
-            trajectories.append({"path": traj, "obstacles": obs, "color": get_random_color()})
+            trajectories.append({
+                "path": traj, 
+                "obstacles": obs, 
+                "color": get_aesthetic_color()
+            })
 
     if not trajectories:
         print("[ERROR] No valid data found.")
         return
 
-    # SYNC ENVIRONMENT: Use obstacle data from the first trajectory to set the scene
-    # (Assuming all trajectories in one folder share the same obstacle layout)
+    # Sync environment to first episode
     apply_obstacles(model, trajectories[0]["obstacles"])
     mujoco.mj_forward(model, data)
 
+    print(f"[INFO] Visualizing {len(trajectories)} trajectories.")
+    print("      green sphere = START | red box = END")
+
     with mujoco.viewer.launch_passive(model, data) as viewer:
-        print(f"[INFO] Showing {len(trajectories)} paths. Obstacles synced to {episode_dirs[0]}")
-        
         while viewer.is_running():
             viewer.user_scn.ngeom = 0
+            
             for traj in trajectories:
                 path = traj["path"]
                 color = traj["color"]
+                
+                if len(path) < 2: continue
 
-                # Draw spheres at waypoints
-                for p in path:
-                    if viewer.user_scn.ngeom >= MAX_GEOMS: break
-                    mujoco.mjv_initGeom(viewer.user_scn.geoms[viewer.user_scn.ngeom],
-                                       mujoco.mjtGeom.mjGEOM_SPHERE, np.array([0.005, 0, 0]),
-                                       p, np.eye(3).flatten(), color)
+                # 1. Draw Start Point (Green Sphere)
+                if viewer.user_scn.ngeom < MAX_GEOMS:
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        mujoco.mjtGeom.mjGEOM_SPHERE, 
+                        np.array([0.015, 0, 0]), # Size
+                        path[0], 
+                        np.eye(3).flatten(), 
+                        np.array([0, 1, 0, 1]) # Solid Green
+                    )
                     viewer.user_scn.ngeom += 1
 
-                # Draw lines
-                if args.lines:
-                    for i in range(len(path)-1):
+                # 2. Draw End Point (Red Box)
+                if viewer.user_scn.ngeom < MAX_GEOMS:
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        mujoco.mjtGeom.mjGEOM_BOX, 
+                        np.array([0.012, 0.012, 0.012]), # Size
+                        path[-1], 
+                        np.eye(3).flatten(), 
+                        np.array([1, 0, 0, 1]) # Solid Red
+                    )
+                    viewer.user_scn.ngeom += 1
+
+                # 3. Draw Path Lines (Continuous Strip)
+                for i in range(len(path) - 1):
+                    if viewer.user_scn.ngeom >= MAX_GEOMS: break
+                    
+                    # Connector (Line)
+                    mujoco.mjv_initGeom(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        mujoco.mjtGeom.mjGEOM_CAPSULE, # Capsule looks smoother than LINE
+                        np.array([0.003, 0, 0]), # Radius
+                        np.zeros(3), np.zeros(9), # Pos/Rot ignored for connector
+                        color
+                    )
+                    mujoco.mjv_connector(
+                        viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                        mujoco.mjtGeom.mjGEOM_CAPSULE,
+                        0.003,
+                        path[i],
+                        path[i+1]
+                    )
+                    viewer.user_scn.ngeom += 1
+                    
+                    # 4. Small Waypoint dots (Optional, adds texture)
+                    if i % 5 == 0: # Only draw every 5th dot to save geoms
                         if viewer.user_scn.ngeom >= MAX_GEOMS: break
-                        mujoco.mjv_connector(viewer.user_scn.geoms[viewer.user_scn.ngeom],
-                                            mujoco.mjtGeom.mjGEOM_LINE, 0.002, 
-                                            path[i], path[i+1])
-                        viewer.user_scn.geoms[viewer.user_scn.ngeom].rgba = color
+                        mujoco.mjv_initGeom(
+                            viewer.user_scn.geoms[viewer.user_scn.ngeom],
+                            mujoco.mjtGeom.mjGEOM_SPHERE,
+                            np.array([0.004, 0, 0]),
+                            path[i],
+                            np.eye(3).flatten(),
+                            color
+                        )
                         viewer.user_scn.ngeom += 1
 
             viewer.sync()
+            time.sleep(0.01)
 
 if __name__ == "__main__":
     main()

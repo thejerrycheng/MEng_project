@@ -1,0 +1,3 @@
+name,x,y,z,yaw
+cylinder_obstacle,0.25,0.25,0.25,0
+cube_obstacle,0.25,-0.25,0.125,0

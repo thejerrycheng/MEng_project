@@ -127,8 +127,8 @@ class TeachRepeatNode:
         while not self.state_received and not rospy.is_shutdown():
             rospy.sleep(0.1)
 
-        start_joints = self.live_joints.copy()
-        target_joints = self.recorded_traj[0][1] # First frame of bag
+        start_joints = self.live_joints.copy().astype(float)
+        target_joints = self.recorded_traj[0][1].astype(float) # First frame of bag
         
         # Calculate max displacement to determine duration
         max_diff = np.max(np.abs(start_joints - target_joints))
@@ -184,7 +184,7 @@ class TeachRepeatNode:
                 traj_idx += 1
             
             # Get current target
-            target_q = self.recorded_traj[traj_idx][1]
+            target_q = self.recorded_traj[traj_idx][1].astype(float)
             self.publish_cmd(target_q)
             
             # Progress bar
