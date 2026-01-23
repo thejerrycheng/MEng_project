@@ -23,11 +23,16 @@ SEQ_LEN = 8
 FUTURE_STEPS = 15
 CONTROL_HZ = 10 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MAX_DELTA = 0.1 
+
+# --- MOTION TUNING (THE FIX) ---
+# If robot is stuck, increase LOOKAHEAD_STEPS (up to 14) or ACTION_SCALE (e.g. 1.5)
+LOOKAHEAD_STEPS = 6     # Look ~0.6s into the future to create larger motion commands
+ACTION_SCALE = 1.0      # Scalar multiplier to boost deltas if needed
+MAX_DELTA = 0.3         # Increased safety limit since we are looking further ahead
 
 # --- SMOOTHING CONFIG ---
-ENABLE_EMA = True       # Turn on smoothing
-EMA_ALPHA = 0.4         # 0.0 = No change (frozen), 1.0 = No smoothing (raw output). 0.3-0.5 is good.
+ENABLE_EMA = True       
+EMA_ALPHA = 0.3         # Lower = Smoother, Higher = More Responsive
 
 # Paths
 SSD_GOAL_DIR = "/media/jerry/SSD/goal_images"
@@ -72,14 +77,13 @@ class IRISController:
         self.lock = threading.Lock()
         
         # Smoothing State
-        self.last_target_q = None # Stores the previous command sent to robot
+        self.prev_delta = None # Smoothing the velocity, not the position
         
-        # Variable to store joint names from the robot
         self.joint_names = []
         
         # 4. ROS Setup
         rospy.init_node('iris_neural_policy', anonymous=True)
-        
+         
         self.cmd_pub = rospy.Publisher('/joint_commands_calibrated', JointState, queue_size=1)
         
         image_sub = message_filters.Subscriber('/camera/color/image_raw', RosImage)
@@ -93,7 +97,6 @@ class IRISController:
     def data_callback(self, img_msg, joint_msg):
         with self.lock:
             try:
-                # Capture joint names if we haven't yet
                 if not self.joint_names and joint_msg.name:
                     self.joint_names = joint_msg.name
                     print(f"Captured Joint Names: {self.joint_names}")
@@ -117,88 +120,95 @@ class IRISController:
                     print(f"Buffering... {len(self.image_buffer)}/{SEQ_LEN}")
                 return None
             
-            # Stack History
             img_seq = torch.stack(list(self.image_buffer)).unsqueeze(0)
-            
             joint_seq_np = np.array(list(self.joint_buffer))
             joint_seq = torch.tensor(joint_seq_np, dtype=torch.float32).unsqueeze(0).to(self.device)
-            
             current_q = joint_seq_np[-1]
 
         # Inference
         with torch.no_grad():
             pred_delta, _ = self.model(img_seq, joint_seq, self.goal_tensor, target_actions=None)
         
-        pred_delta = pred_delta.squeeze(0).cpu().numpy()
+        pred_delta = pred_delta.squeeze(0).cpu().numpy() # Shape: [15, 6]
         
-        # --- SMOOTHING LOGIC ---
+        # --- THE FIX: LOOKAHEAD LOGIC ---
         
-        # 1. Raw Prediction: Receding Horizon Control (First Step)
-        next_delta = pred_delta[0]
+        # Instead of taking index 0 (0.1s), we take index LOOKAHEAD_STEPS (e.g., 0.6s)
+        # This creates a "virtual target" further away, generating larger error for the PID controller.
+        step_idx = min(LOOKAHEAD_STEPS, len(pred_delta) - 1)
         
-        # 2. Safety Clipping
-        next_delta = np.clip(next_delta, -MAX_DELTA, MAX_DELTA)
+        # Get the delta for that future step
+        raw_next_delta = pred_delta[step_idx]
         
-        # 3. Calculate Raw Target
-        raw_target_q = current_q + next_delta
+        # Apply Scaling (if we need even more aggression)
+        raw_next_delta = raw_next_delta * ACTION_SCALE
         
-        # 4. Apply Exponential Moving Average (EMA)
+        # --- SMOOTHING LOGIC (Velocity Level) ---
         if ENABLE_EMA:
-            if self.last_target_q is None:
-                # First step: No history to smooth with
-                smoothed_target_q = raw_target_q
+            if self.prev_delta is None:
+                smoothed_delta = raw_next_delta
             else:
-                # Blend: New = alpha * Raw + (1-alpha) * Old
-                # Lower alpha = Smoother (but more lag)
-                # Higher alpha = More responsive (but more noise)
-                smoothed_target_q = (EMA_ALPHA * raw_target_q) + ((1 - EMA_ALPHA) * self.last_target_q)
+                # Smooth the CHANGE in position, not the absolute position
+                # This prevents the "drag" effect of the previous implementation
+                smoothed_delta = (EMA_ALPHA * raw_next_delta) + ((1 - EMA_ALPHA) * self.prev_delta)
             
-            self.last_target_q = smoothed_target_q
-            return smoothed_target_q
+            self.prev_delta = smoothed_delta
+            final_delta = smoothed_delta
         else:
-            return raw_target_q
+            final_delta = raw_next_delta
+            
+        # Safety Clip
+        final_delta = np.clip(final_delta, -MAX_DELTA, MAX_DELTA)
+        
+        # Calculate Final Target
+        target_q = current_q + final_delta
+        
+        # Log magnitude for debugging
+        motion_mag = np.max(np.abs(final_delta))
+            
+        return target_q, motion_mag, final_delta
 
     def run(self):
         rate = rospy.Rate(CONTROL_HZ)
-        print(f"Policy Running. Smoothing: {ENABLE_EMA} (Alpha={EMA_ALPHA})")
+        print(f"Policy Running. Lookahead: {LOOKAHEAD_STEPS} steps. Scale: {ACTION_SCALE}")
         
-        last_time = time.time()
         counter = 0
 
         while not rospy.is_shutdown():
-            target_q = self.get_action()
+            result = self.get_action()
             
-            if target_q is not None:
-                # Construct proper JointState message
+            if result is not None:
+                target_q, motion_mag, used_delta = result
+                
+                # --- DEBUG LOG ---
+                if counter % 10 == 0:
+                    print("-" * 30)
+                    print(f"Lookahead Delta Mag: {motion_mag:.5f}")
+                    print(f"Used Delta:   {np.round(used_delta, 4)}")
+                    print(f"Target Joints:{np.round(target_q, 4)}")
+                
                 msg = JointState()
                 msg.header.stamp = rospy.Time.now()
                 msg.position = target_q.tolist()
                 
                 if self.joint_names:
                     msg.name = self.joint_names
-                
+                else:
+                    msg.name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
+
                 self.cmd_pub.publish(msg)
-                
-                # --- Frequency Logging ---
                 counter += 1
-                if counter % 10 == 0: 
-                    curr_time = time.time()
-                    dt = curr_time - last_time
-                    actual_hz = 10.0 / dt
-                    print(f"Control Rate: {actual_hz:.2f} Hz")
-                    last_time = curr_time
             
             rate.sleep()
 
 def main():
     parser = argparse.ArgumentParser()
-    
     parser.add_argument("--checkpoint", type=str, 
                         default="/media/jerry/SSD/checkpoints/best_iris_experiment_combined.pth",
                         help="Path to trained model")
     
     parser.add_argument("--goal", type=str, default="goal1.png", 
-                        help="Filename (e.g. goal1.png) or full path to goal image")
+                        help="Filename or path")
     
     args = parser.parse_args()
 

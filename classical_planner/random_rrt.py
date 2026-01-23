@@ -11,7 +11,7 @@ import argparse
 # ============================================================
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start", nargs=3, type=float, default=[0, 0.25, 0.3])
+    parser.add_argument("--start", nargs=3, type=float, default=[0.0, 0.25, 0.3])
     parser.add_argument("--end", nargs=3, type=float, default=[0.5, 0.25, 0.3])
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--viz", action="store_true", help="Visualize the IK/Planning process")
@@ -28,14 +28,14 @@ MAX_RRT_SAMPLES = 20000
 WAYPOINT_RESOLUTION = 0.02 
 
 # ============================================================
-# Robust IK Utility (Orientation Constrained)
+# Full Orientation IK (Z=Dir, X=Left)
 # ============================================================
-def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
+def solve_ik(model, data, target_xyz, target_z, target_x, body_id, max_retries=10):
     """
-    Robust IK that aligns the End-Effector Z-axis with 'target_z_vec'.
+    Solves IK with strict orientation constraints:
+    1. EE Z-axis must align with 'target_z' (Moving Direction).
+    2. EE X-axis must align with 'target_x' (Left of Moving Direction).
     """
-    # Normalize the target orientation vector
-    target_z_vec = target_z_vec / np.linalg.norm(target_z_vec)
     
     seeds = [
         np.array([0.0, -0.8, -1.5, 0.0, 1.2, 0.0]), 
@@ -43,11 +43,8 @@ def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
         np.array([0.0, -0.2, -0.2, 0.0, 0.5, 0.0]), 
     ]
     
-    best_q = None
-    best_err = float('inf')
-
     for attempt in range(max_retries):
-        # 1. Initialization
+        # Initialize
         if attempt < len(seeds):
             data.qpos[:6] = seeds[attempt]
         else:
@@ -55,7 +52,7 @@ def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
             
         mujoco.mj_forward(model, data)
         
-        # 2. Gradient Descent Loop
+        # Gradient Descent
         for i in range(500):
             # Get Jacobian
             jacp = np.zeros((3, model.nv))
@@ -66,25 +63,30 @@ def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
             curr_pos = data.body(body_id).xpos
             curr_mat = data.body(body_id).xmat.reshape(3, 3)
             
-            # Position Error
+            current_x = curr_mat[:, 0] # EE X-axis
+            current_z = curr_mat[:, 2] # EE Z-axis
+            
+            # --- Errors ---
             pos_err = target_xyz - curr_pos
             
-            # Orientation Error (Align Z-axis)
-            # We want current Z (curr_mat[:, 2]) to match target_z_vec
-            ee_z = curr_mat[:, 2]
-            # Cross product gives the axis of rotation required to align them
-            rot_err = np.cross(ee_z, target_z_vec)
+            # Orientation Error: Cross product aligns vectors
+            # 1. Align Z with Moving Direction
+            err_rot_z = np.cross(current_z, target_z)
             
-            total_err = np.linalg.norm(pos_err) + np.linalg.norm(rot_err)
-
-            if total_err < 1e-3:
+            # 2. Align X with Left Direction
+            err_rot_x = np.cross(current_x, target_x)
+            
+            # Combine rotation errors
+            total_rot_err = err_rot_z + err_rot_x
+            
+            # Convergence Check
+            if np.linalg.norm(pos_err) < 1e-3 and np.linalg.norm(total_rot_err) < 1e-2:
                 return data.qpos[:6].copy()
             
-            # Stack Jacobian (Pos + Rot)
+            # Solve Damped Least Squares
             J = np.vstack([jacp[:, :6], jacr[:, :6]])
-            err_vec = np.concatenate([pos_err, rot_err]) # Weight rotation equally
+            err_vec = np.concatenate([pos_err, total_rot_err])
             
-            # Damped Least Squares
             diag = 0.01 * np.eye(6)
             dq = J.T @ np.linalg.solve(J @ J.T + diag, err_vec)
             
@@ -92,7 +94,7 @@ def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
             data.qpos[:6] = np.clip(data.qpos[:6], -3.1, 3.1)
             mujoco.mj_forward(model, data)
 
-    print("IK Warning: Solution not converged within tolerance.")
+    print("IK Warning: Failed to satisfy orientation constraints.")
     return None
 
 # ============================================================
@@ -101,7 +103,6 @@ def solve_ik(model, data, target_xyz, target_z_vec, body_id, max_retries=10):
 class ObstacleManager:
     def __init__(self, model):
         self.model = model
-        # MATCHING XML: size="0.125 0.05 0.125"
         self.obstacles = {
             "cube_obstacle": {"size": np.array([0.125, 0.05, 0.125])}
         }
@@ -145,7 +146,6 @@ class GlobalRRTStar:
         if self.samples_count >= MAX_RRT_SAMPLES: return False
         self.samples_count += 1
         
-        # Bias strategy
         if self.goal_found and np.random.rand() < 0.6:
             path_indices = self.get_path_indices()
             if path_indices:
@@ -158,7 +158,6 @@ class GlobalRRTStar:
         else: 
             q_rand = np.random.uniform(-np.pi, np.pi, 6)
 
-        # Standard RRT* steps
         node_arr = np.array(self.nodes)
         dists = np.linalg.norm(node_arr - q_rand, axis=1)
         nearest_idx = np.argmin(dists)
@@ -208,28 +207,43 @@ def main():
     obs_mgr.set_fixed_position()
 
     # ----------------------------------------------------
-    # NEW IK LOGIC: Align Z-axis with movement direction
+    # CALCULATE ORIENTATION TARGETS
     # ----------------------------------------------------
     start_pos = np.array(args.start)
     end_pos = np.array(args.end)
     
-    # Calculate direction vector (Goal - Start)
-    move_vec = end_pos - start_pos
-    # Normalize
-    if np.linalg.norm(move_vec) > 1e-6:
-        move_dir = move_vec / np.linalg.norm(move_vec)
-    else:
-        move_dir = np.array([1, 0, 0]) # Default X if start==end
-
-    print(f"Goal Direction Vector: {move_dir}")
-    print(f"Solving IK... (Constraint: EE Z-axis aligns with Goal Direction)")
+    # 1. Z-Axis = Moving Direction (Start -> End)
+    direction_vec = end_pos - start_pos
+    if np.linalg.norm(direction_vec) < 1e-6:
+        direction_vec = np.array([1, 0, 0]) # Fallback
+    target_z_axis = direction_vec / np.linalg.norm(direction_vec)
     
-    # Pass 'move_dir' to solve_ik
-    start_q = solve_ik(model, data, start_pos, move_dir, ee_id)
-    goal_q  = solve_ik(model, data, end_pos,   move_dir, ee_id)
+    # 2. X-Axis = Left of Moving Direction
+    # "Left" is usually defined as Cross(Up, Forward)
+    world_up = np.array([0, 0, 1])
+    
+    # Check if we are moving vertically (singularity)
+    if abs(np.dot(world_up, target_z_axis)) > 0.99:
+        world_up = np.array([1, 0, 0]) # Use World X as temp up if moving vertical
+        
+    left_vec = np.cross(world_up, target_z_axis)
+    target_x_axis = left_vec / np.linalg.norm(left_vec)
+
+    print(f"[IK Targets]")
+    print(f"  Target Z (Move Dir): {target_z_axis}")
+    print(f"  Target X (Left Dir): {target_x_axis}")
+
+    
+    
+    # ----------------------------------------------------
+    # SOLVE IK
+    # ----------------------------------------------------
+    print(f"Solving IK...")
+    start_q = solve_ik(model, data, start_pos, target_z_axis, target_x_axis, ee_id)
+    goal_q  = solve_ik(model, data, end_pos,   target_z_axis, target_x_axis, ee_id)
 
     if start_q is None or goal_q is None:
-        print("❌ IK Failed. Could not satisfy position + orientation constraints.")
+        print("❌ IK Failed.")
         return
 
     # 2. Episode Loop
