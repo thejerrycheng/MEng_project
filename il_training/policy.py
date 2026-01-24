@@ -6,6 +6,8 @@ import torch
 import rospy
 import message_filters
 import time
+import csv
+from datetime import datetime
 from sensor_msgs.msg import Image as RosImage, JointState
 from cv_bridge import CvBridge
 from PIL import Image as PILImage
@@ -24,11 +26,10 @@ FUTURE_STEPS = 15
 CONTROL_HZ = 10 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# --- MOTION TUNING (THE FIX) ---
-# If robot is stuck, increase LOOKAHEAD_STEPS (up to 14) or ACTION_SCALE (e.g. 1.5)
-LOOKAHEAD_STEPS = 6     # Look ~0.6s into the future to create larger motion commands
-ACTION_SCALE = 1.0      # Scalar multiplier to boost deltas if needed
-MAX_DELTA = 0.3         # Increased safety limit since we are looking further ahead
+# --- MOTION TUNING ---
+LOOKAHEAD_STEPS = 2     # Look ~0.6s into the future
+ACTION_SCALE = 1.0      # Scalar multiplier 
+MAX_DELTA = 0.3         # Safety limit
 
 # --- SMOOTHING CONFIG ---
 ENABLE_EMA = True       
@@ -49,6 +50,8 @@ class IRISController:
     def __init__(self, model_path, goal_image_path):
         self.device = DEVICE
         self.bridge = CvBridge()
+        self.model_path_str = model_path
+        self.goal_name_str = os.path.basename(goal_image_path)
         
         # 1. Load Model
         print(f"Loading Model: {model_path}")
@@ -77,11 +80,14 @@ class IRISController:
         self.lock = threading.Lock()
         
         # Smoothing State
-        self.prev_delta = None # Smoothing the velocity, not the position
+        self.prev_delta = None 
         
         self.joint_names = []
         
-        # 4. ROS Setup
+        # 4. Logging Setup
+        self.setup_logging()
+
+        # 5. ROS Setup
         rospy.init_node('iris_neural_policy', anonymous=True)
          
         self.cmd_pub = rospy.Publisher('/joint_commands_calibrated', JointState, queue_size=1)
@@ -93,6 +99,37 @@ class IRISController:
         ts.registerCallback(self.data_callback)
 
         print("Waiting for ROS messages...")
+
+    def setup_logging(self):
+        # Extract model name from path (e.g. 'best_iris_experiment_combined')
+        model_name = os.path.splitext(os.path.basename(self.model_path_str))[0]
+        
+        # Create Timestamp (e.g. '2026-01-23_18-30-00')
+        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        
+        # Construct Filename
+        self.csv_filename = f"deployment_{model_name}_{date_str}.csv"
+        
+        # Create File and Writer
+        self.log_file = open(self.csv_filename, 'w', newline='')
+        self.csv_writer = csv.writer(self.log_file)
+        
+        # Define Header
+        header = ["timestamp", "model_name", "goal_image"]
+        
+        # Add columns for Current Joint Positions (curr_j0 ... curr_j5)
+        header.extend([f"curr_j{i}" for i in range(6)])
+        
+        # Add columns for Command Joint Positions (cmd_j0 ... cmd_j5)
+        header.extend([f"cmd_j{i}" for i in range(6)])
+        
+        # Add columns for Calculated Deltas (delta_j0 ... delta_j5)
+        header.extend([f"delta_j{i}" for i in range(6)])
+        
+        self.csv_writer.writerow(header)
+        print(f"--------------------------------------------------")
+        print(f"LOGGING DATA TO: {self.csv_filename}")
+        print(f"--------------------------------------------------")
 
     def data_callback(self, img_msg, joint_msg):
         with self.lock:
@@ -123,6 +160,8 @@ class IRISController:
             img_seq = torch.stack(list(self.image_buffer)).unsqueeze(0)
             joint_seq_np = np.array(list(self.joint_buffer))
             joint_seq = torch.tensor(joint_seq_np, dtype=torch.float32).unsqueeze(0).to(self.device)
+            
+            # Capture current state for logging and calculation
             current_q = joint_seq_np[-1]
 
         # Inference
@@ -131,25 +170,18 @@ class IRISController:
         
         pred_delta = pred_delta.squeeze(0).cpu().numpy() # Shape: [15, 6]
         
-        # --- THE FIX: LOOKAHEAD LOGIC ---
-        
-        # Instead of taking index 0 (0.1s), we take index LOOKAHEAD_STEPS (e.g., 0.6s)
-        # This creates a "virtual target" further away, generating larger error for the PID controller.
+        # --- LOOKAHEAD LOGIC ---
         step_idx = min(LOOKAHEAD_STEPS, len(pred_delta) - 1)
-        
-        # Get the delta for that future step
         raw_next_delta = pred_delta[step_idx]
         
-        # Apply Scaling (if we need even more aggression)
+        # Apply Scaling
         raw_next_delta = raw_next_delta * ACTION_SCALE
         
-        # --- SMOOTHING LOGIC (Velocity Level) ---
+        # --- SMOOTHING LOGIC ---
         if ENABLE_EMA:
             if self.prev_delta is None:
                 smoothed_delta = raw_next_delta
             else:
-                # Smooth the CHANGE in position, not the absolute position
-                # This prevents the "drag" effect of the previous implementation
                 smoothed_delta = (EMA_ALPHA * raw_next_delta) + ((1 - EMA_ALPHA) * self.prev_delta)
             
             self.prev_delta = smoothed_delta
@@ -163,10 +195,11 @@ class IRISController:
         # Calculate Final Target
         target_q = current_q + final_delta
         
-        # Log magnitude for debugging
+        # Log magnitude
         motion_mag = np.max(np.abs(final_delta))
             
-        return target_q, motion_mag, final_delta
+        # Return current_q as well so we can log it in run()
+        return target_q, motion_mag, final_delta, current_q
 
     def run(self):
         rate = rospy.Rate(CONTROL_HZ)
@@ -174,32 +207,45 @@ class IRISController:
         
         counter = 0
 
-        while not rospy.is_shutdown():
-            result = self.get_action()
-            
-            if result is not None:
-                target_q, motion_mag, used_delta = result
+        try:
+            while not rospy.is_shutdown():
+                result = self.get_action()
                 
-                # --- DEBUG LOG ---
-                if counter % 10 == 0:
-                    print("-" * 30)
-                    print(f"Lookahead Delta Mag: {motion_mag:.5f}")
-                    print(f"Used Delta:   {np.round(used_delta, 4)}")
-                    print(f"Target Joints:{np.round(target_q, 4)}")
-                
-                msg = JointState()
-                msg.header.stamp = rospy.Time.now()
-                msg.position = target_q.tolist()
-                
-                if self.joint_names:
-                    msg.name = self.joint_names
-                else:
-                    msg.name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
+                if result is not None:
+                    target_q, motion_mag, used_delta, current_q = result
+                    
+                    # --- DEBUG LOG (Terminal) ---
+                    if counter % 10 == 0:
+                        print("-" * 30)
+                        print(f"Delta Mag: {motion_mag:.5f}")
+                        print(f"Target:    {np.round(target_q, 4)}")
+                    
+                    # --- CSV LOGGING ---
+                    row = [time.time(), self.model_path_str, self.goal_name_str]
+                    row.extend(current_q.tolist()) # Add Current Joints
+                    row.extend(target_q.tolist())  # Add Command Joints
+                    row.extend(used_delta.tolist()) # Add Delta
+                    
+                    self.csv_writer.writerow(row)
 
-                self.cmd_pub.publish(msg)
-                counter += 1
-            
-            rate.sleep()
+                    # --- ROS PUBLISHING ---
+                    msg = JointState()
+                    msg.header.stamp = rospy.Time.now()
+                    msg.position = target_q.tolist()
+                    
+                    if self.joint_names:
+                        msg.name = self.joint_names
+                    else:
+                        msg.name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
+
+                    self.cmd_pub.publish(msg)
+                    counter += 1
+                
+                rate.sleep()
+        finally:
+            print("\nClosing Log File...")
+            self.log_file.close()
+            print(f"Log Saved: {self.csv_filename}")
 
 def main():
     parser = argparse.ArgumentParser()

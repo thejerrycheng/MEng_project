@@ -32,46 +32,8 @@ CONTROL_RATE = 200       # Hz
 DT = 1.0 / CONTROL_RATE
 USB_GUARD_SLEEP = 0.0005
 
-COMMAND_TIMEOUT = 0.25   # seconds
-
-# Max joint velocity (rad/s)
-MAX_VEL = [0.6,0.6,0.6,0.8,1.0,1.0]
-
-# Target low-pass filter#!/usr/bin/env python3
-import sys
-import time
-import rospy
-from sensor_msgs.msg import JointState
-
-# --------------------------------------------------
-# Unitree SDK import
-# --------------------------------------------------
-UNITREE_SDK_LIB = "/home/jerry/Desktop/MEng_project/mpr_control/unitree_actuator_sdk/lib"
-if UNITREE_SDK_LIB not in sys.path:
-    sys.path.append(UNITREE_SDK_LIB)
-
-from unitree_actuator_sdk import *
-
-# --------------------------------------------------
-# Configuration
-# --------------------------------------------------
-SERIAL_PORT = "/dev/ttyUSB0"
-MOTOR_TYPE = MotorType.GO_M8010_6
-MOTOR_IDS = [0,1,2,3,4,5]
-
-JOINT_NAMES = [
-    "joint_1","joint_2","joint_3",
-    "joint_4","joint_5","joint_6"
-]
-
-NUM_MOTORS = 6
-GEAR = queryGearRatio(MOTOR_TYPE)
-
-CONTROL_RATE = 200       # Hz
-DT = 1.0 / CONTROL_RATE
-USB_GUARD_SLEEP = 0.0005
-
-COMMAND_TIMEOUT = 0.25   # seconds
+COMMAND_TIMEOUT = 0.25   # seconds: Time before entering "Hold" mode
+PASSIVE_TIMEOUT = 5.0    # seconds: Time in "Hold" before going "Passive"
 
 # Max joint velocity (rad/s)
 MAX_VEL = [0.6,0.6,0.6,0.8,1.0,1.0]
@@ -107,6 +69,9 @@ class UnitreeArmHW:
         self.q_des_filt = None
         self.q_cmd = None
         self.last_cmd_time = None
+        
+        # State tracking for logging
+        self.current_mode = "PASSIVE" # PASSIVE, ACTIVE, HOLD
 
         # ROS I/O
         self.state_pub = rospy.Publisher("/joint_states", JointState, queue_size=1)
@@ -117,6 +82,7 @@ class UnitreeArmHW:
         rospy.loginfo(" Publishes : /joint_states")
         rospy.loginfo(" Subscribes: /joint_commands")
         rospy.loginfo(" Control Rate: %d Hz", CONTROL_RATE)
+        rospy.loginfo(" Auto-Passive Delay: %.1f s", PASSIVE_TIMEOUT)
         rospy.loginfo("==============================================")
 
         # --------------------------------------------------
@@ -193,40 +159,72 @@ class UnitreeArmHW:
         rate = rospy.Rate(CONTROL_RATE)
 
         while not rospy.is_shutdown():
-
             now = rospy.Time.now().to_sec()
-            active = (
-                self.q_des is not None and
-                self.last_cmd_time is not None and
-                (now - self.last_cmd_time) < COMMAND_TIMEOUT
-            )
+            
+            # Determine time since last command
+            if self.last_cmd_time is None:
+                dt_last_cmd = 99999.0 # Infinite if never received
+            else:
+                dt_last_cmd = now - self.last_cmd_time
 
-            # First time entering active → initialize filters
-            if active and self.q_cmd is None:
-                self.q_des_filt = self.q[:]
-                self.q_cmd = self.q[:]
-                rospy.loginfo("Received first command → entering active control mode.")
+            # --------------------------------------------------
+            # STATE MACHINE LOGIC
+            # --------------------------------------------------
+            
+            # 1. ACTIVE: Receiving commands recently
+            if dt_last_cmd < COMMAND_TIMEOUT:
+                state = "ACTIVE"
+                
+                # First time entering active -> initialize
+                if self.q_cmd is None:
+                    self.q_des_filt = self.q[:]
+                    self.q_cmd = self.q[:]
+                    rospy.loginfo("State -> ACTIVE (Control Engaged)")
+
+            # 2. HOLD: Lost command, but within 5s grace period
+            elif dt_last_cmd < PASSIVE_TIMEOUT:
+                state = "HOLD"
+                
+                # If we just transitioned into HOLD, log it
+                if self.current_mode != "HOLD" and self.current_mode == "ACTIVE":
+                    rospy.logwarn(f"Command timeout! Holding position for {PASSIVE_TIMEOUT}s...")
+
+            # 3. PASSIVE: No command for > 5s
+            else:
+                state = "PASSIVE"
+                
+                # Reset command buffer so next engagement is smooth
+                if self.current_mode != "PASSIVE":
+                    rospy.logwarn("Timeout exceeded -> Switching to PASSIVE mode.")
+                    self.q_cmd = None 
+                    self.q_des_filt = None
+
+            self.current_mode = state
 
             # --------------------------------------------------
             # Main SDK streaming
             # --------------------------------------------------
             for i, mid in enumerate(MOTOR_IDS):
 
-                # ----- Passive mode -----
-                if not active:
+                # CASE: PASSIVE
+                if state == "PASSIVE":
                     q, dq, err = self.sdk_cycle(mid, passive=True)
 
-                # ----- Active mode -----
+                # CASE: ACTIVE or HOLD
                 else:
-                    # Low-pass filter target
-                    self.q_des_filt[i] = (1.0 - TARGET_LPF_ALPHA)*self.q_des_filt[i] + TARGET_LPF_ALPHA*self.q_des[i]
+                    # Only update trajectory if ACTIVE. 
+                    # If HOLD, we skip this block, effectively freezing q_cmd at last value.
+                    if state == "ACTIVE":
+                        # Low-pass filter target
+                        self.q_des_filt[i] = (1.0 - TARGET_LPF_ALPHA)*self.q_des_filt[i] + TARGET_LPF_ALPHA*self.q_des[i]
 
-                    # Velocity-limited ramp
-                    err_q = self.q_des_filt[i] - self.q_cmd[i]
-                    max_step = MAX_VEL[i]*DT
-                    step = max(min(err_q, max_step), -max_step)
-                    self.q_cmd[i] += step
+                        # Velocity-limited ramp
+                        err_q = self.q_des_filt[i] - self.q_cmd[i]
+                        max_step = MAX_VEL[i]*DT
+                        step = max(min(err_q, max_step), -max_step)
+                        self.q_cmd[i] += step
 
+                    # Send command (In HOLD, q_cmd stays constant, keeping motors stiff)
                     q, dq, err = self.sdk_cycle(mid, passive=False, q_cmd=self.q_cmd[i], motor_index=i)
 
                 # Store state
