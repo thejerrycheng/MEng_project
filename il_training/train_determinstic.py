@@ -94,7 +94,7 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--num_workers", type=int, default=12)
     parser.add_argument("--log_interval", type=int, default=10, help="Log progress every N batches")
     
     # Model Params
