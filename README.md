@@ -48,11 +48,11 @@ The design emphasizes low cost, modularity, and high backdrivability for kinesth
 
 ### 🔩 3D Models and CAD
 
-- 📐 **Mechanical CAD (STEP + STL):**
+<!-- - 📐 **Mechanical CAD (STEP + STL):**
   👉 [https://github.com/thejerrycheng/IRIS-Hardware](https://github.com/thejerrycheng/IRIS-Hardware)
 
 - 🖨️ **Printable STL files:**
-  👉 [https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL](https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL)
+  👉 [https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL](https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL) -->
 
 <p align="center">
   <img src="images/render.png" width="70%">
@@ -798,9 +798,9 @@ python train.py \
 
 ```
 
-#### 3. Continue Training of the Previous Model or Finetuning 
+#### 3. Continue Training of the Previous Model or Finetuning
 
-To train a policy what was previousluy interrupted or fine-tune baesd on an existing trained model: 
+To train a policy what was previousluy interrupted or fine-tune baesd on an existing trained model:
 
 ```bash
 python continue_train.py \
@@ -821,11 +821,11 @@ python continue_train.py \
 
 We split outputs between the SSD (for speed/capacity) and the local disk (for easy monitoring).
 
-| File Type | Location | Description |
-| --- | --- | --- |
-| **Checkpoints** | `/media/jerry/SSD/checkpoints/` | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
-| **Loss Plots** | `il_training/plots/loss_*.png` | Visual graphs of Train vs Val loss. |
-| **History Logs** | `il_training/plots/history_*.csv` | Raw CSV data of loss per epoch (used for auto-resume). |
+| File Type        | Location                          | Description                                                        |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------ |
+| **Checkpoints**  | `/media/jerry/SSD/checkpoints/`   | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
+| **Loss Plots**   | `il_training/plots/loss_*.png`    | Visual graphs of Train vs Val loss.                                |
+| **History Logs** | `il_training/plots/history_*.csv` | Raw CSV data of loss per epoch (used for auto-resume).             |
 
 ---
 
@@ -890,6 +890,7 @@ python deployment.py \
 3. **Model:** `ACT_CVAE_Optimized` (Transformer + CVAE) predicts actions.
 4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
 5. **Output:** `best_iris_cvae_mixed_v1.pth` is ready for deployment.
+
 ---
 
 ## 💻 System Requirements
