@@ -905,7 +905,7 @@ python visualize_paper_final_tight.py \
 
 ---
 
-### 🦾 Sim-to-Real Deployment
+### 7️⃣-sim-to-real-deployment
 
 Once you have a trained policy (e.g., `best_cvae_full_desktop_v1.pth`), deploy it to the real IRIS robot using **`policy.py`**.
 
