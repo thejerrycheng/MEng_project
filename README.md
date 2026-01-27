@@ -1,7 +1,7 @@
 # 🎥 **IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control**
 
 <p align="center">
-  <img src="images/hero.png" width="70%">
+  <img src="images/v7_cover_photo_16_5.JPG" width="70%">
 </p>
 <p align="center">
   <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
