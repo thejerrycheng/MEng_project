@@ -706,6 +706,10 @@ Each episode also includes metadata:
 
 This allows exact temporal reconstruction for evaluation.
 
+
+<p align="center">
+  <img src="images/data.png" width="50%">
+</p>
 ---
 
 ## 6️⃣ Imitation Learning
@@ -759,44 +763,97 @@ Each sample provides:
 | goal_joint | (B, 6)              | Target joint configuration       |
 
 ---
+### 🏋️ Training & Ablation Studies
 
-### 🏋️ Training
+Our framework supports three distinct model architectures for ablation studies: **CVAE (Generative)**, **Deterministic Transformer**, and **Vanilla CNN-BC**. Each can be trained on specific data modalities (RGB-only, Visual Goal, or Full Context).
 
-We use a robust training pipeline that supports **Auto-Resume**, **SSD Checkpointing**, and **Multi-Dataset Loading**.
+> **✨ Auto-Resume:** All scripts support auto-resume. If training stops (e.g., Ctrl+C), simply run the exact same command again to continue from the last saved checkpoint.
 
-#### 1. Start (or Continue) Training
+#### 1. CVAE Models (State-of-the-Art)
 
-To start training, run the command below.
+The CVAE models are our primary generative baselines, handling multi-modal distributions using a latent space.
 
-> **✨ Auto-Resume Feature:** If training is interrupted (e.g., power outage, Ctrl+C), simply **run the exact same command again**. The script automatically detects existing checkpoints and history files, loads the weights, and resumes from the correct epoch.
+* **Script:** `train_cvae.py`
+* **Loss:** `--loss loss_kl` (MSE + KL Divergence + Smoothness)
+
+| Modality | Inputs Used | Command Model Key |
+| --- | --- | --- |
+| **RGB Only** | Image Sequence  Action | `--model cvae_rgb` |
+| **Visual Servoing** | Image Seq + Goal Image  Action | `--model cvae_visual` |
+| **Full Context** | Image Seq + Goal + Joint History  Action | `--model cvae_full` |
+
+**Example Command (Full Context):**
 
 ```bash
-cd il_training
-python train.py \
-  --data_roots /media/jerry/SSD/final_data_mixed \
-  --name iris_cvae_mixed_v1 \
-  --model transformer_cvae \
+python train_cvae.py \
+  --name cvae_full_experiment_v1 \
+  --model cvae_full \
   --loss loss_kl \
-  --checkpoint_dir /media/jerry/SSD/checkpoints \
-  --batch_size 32 \
-  --epochs 200 \
-  --num_workers 8
+  --data_roots ~/Desktop/final_RGB_joint_goal \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 64 --num_workers 8 --epochs 100 \
+  --latent_dim 32 --beta 0.01
 
 ```
 
-#### 2. Specialized Training (No Obstacles)
+<p align="center">
+  <img src="images/loss.png" width="100%">
+</p>
 
-To train a policy specifically on the "No Obstacle" dataset:
+---
+
+#### 2. Deterministic Transformer Models
+
+These models use the same Transformer backbone as the CVAE but without the latent variable. They serve as strong baselines for single-mode tasks.
+
+* **Script:** `train_determinstic.py`
+* **Loss:** `--loss mse_smooth` (MSE + Smoothness)
+
+| Modality | Inputs Used | Command Model Key |
+| --- | --- | --- |
+| **RGB Only** | Image Sequence  Action | `--model det_rgb` |
+| **Visual Servoing** | Image Seq + Goal Image  Action | `--model det_visual` |
+| **Full Context** | Image Seq + Goal + Joint History  Action | `--model det_full` |
+
+**Example Command (RGB Only Ablation):**
 
 ```bash
-python train.py \
-  --data_roots /media/jerry/SSD/final_data_no_obstacle \
-  --name iris_cvae_no_obs_v1 \
-  --model transformer_cvae \
-  --loss loss_kl \
-  --checkpoint_dir /media/jerry/SSD/checkpoints_no_obstacle
+python train_determinstic.py \
+  --name det_rgb_experiment_v1 \
+  --model det_rgb \
+  --loss mse_smooth \
+  --data_roots ~/Desktop/final_RGB_only \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 128 --num_workers 12 --epochs 100
 
 ```
+
+---
+
+#### 3. Vanilla CNN-BC (Behavior Cloning)
+
+A classic ResNet34 + MLP architecture. This serves as the "simple baseline" to prove the value of the Transformer/CVAE architecture.
+
+* **Script:** `train_cnn_bc.py`
+* **Data Requirement:** Requires Full Context (Images + Joints + Goal) by default.
+
+**Example Command:**
+
+```bash
+python train_cnn_bc.py \
+  --name vanilla_bc_baseline \
+  --data_roots ~/Desktop/final_RGB_joint_goal \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 64 --num_workers 8 --epochs 100
+```
+
+**Key Deployment Flags:**
+
+* `--model_type`: Must match the model you trained (e.g., `cvae_rgb`, `det_visual`, `vanilla_bc`).
+* `--vis`: Enables the visualization window (shows live camera feed + goal image).
+* `--real_robot`: Connects to the real physical robot hardware (requires drivers).
+* `--sim`: Runs the policy in the MuJoCo simulation environment.
+
 
 #### 3. Continue Training of the Previous Model or Finetuning
 
@@ -812,49 +869,45 @@ python continue_train.py \
    --batch_size 32 \
    --epochs 200 \
    --num_workers 8
-
 ```
 
----
 
 ### 📂 Where is Everything Saved?
 
-We split outputs between the SSD (for speed/capacity) and the local disk (for easy monitoring).
+We now organize outputs directly on the Desktop for easier access and monitoring.
 
-| File Type        | Location                          | Description                                                        |
-| ---------------- | --------------------------------- | ------------------------------------------------------------------ |
-| **Checkpoints**  | `/media/jerry/SSD/checkpoints/`   | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
-| **Loss Plots**   | `il_training/plots/loss_*.png`    | Visual graphs of Train vs Val loss.                                |
-| **History Logs** | `il_training/plots/history_*.csv` | Raw CSV data of loss per epoch (used for auto-resume).             |
+| File Type | Location | Description |
+| --- | --- | --- |
+| **Checkpoints** | `~/Desktop/checkpoints/` | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
+| **Loss Plots** | `~/Desktop/checkpoints/plots/` | Visual graphs of Train vs Val loss and raw CSV history. |
+| **Dataset** | `~/Desktop/final_RGB_...` | The resized training datasets (RGB-only, Joint+Goal, etc.). |
 
 ---
 
 ### 🧪 Offline Testing & Evaluation
 
-Before running on the robot, evaluate the model's performance on held-out test data using our metrics script. This calculates MSE, KL Divergence, and prediction error.
+Before running on the robot, evaluate the model's performance on held-out test data using our metrics script. This calculates MSE (Accuracy), KL Divergence, and prediction error.
 
 ```bash
 python metrics_test.py \
-  --test_data /media/jerry/SSD/final_data_mixed/test \
-  --models /media/jerry/SSD/checkpoints/best_iris_cvae_mixed_v1.pth \
-  --names "Mixed Policy"
-
+  --test_data ~/Desktop/final_RGB_joint_goal/test \
+  --checkpoint ~/Desktop/checkpoints/best_cvae_full_desktop_v1.pth \
+  --model_type cvae_full
 ```
 
-**To visualize the dataset distributions (for papers):**
+**To visualize the dataset distributions (for paper's figure):**
 
 ```bash
 python visualize_paper_final_tight.py \
-  --data_dir /media/jerry/SSD/final_data_mixed \
+  --data_dir ~/Desktop/final_RGB_joint_goal \
   --split train
-
 ```
 
 ---
 
 ### 🦾 Sim-to-Real Deployment
 
-Once you have a trained policy (e.g., `best_iris_cvae_mixed_v1.pth`), deploy it to the real IRIS robot.
+Once you have a trained policy (e.g., `best_cvae_full_desktop_v1.pth`), deploy it to the real IRIS robot using **`policy.py`**.
 
 #### 1. Hardware Check (Inverse Kinematics)
 
@@ -862,36 +915,60 @@ First, verify the robot communicates correctly by running the IK teleop bridge:
 
 ```bash
 rosrun unitree_arm_ros keyboard_ik_teleop.py
-
 ```
 
-#### 2. Execute Learned Policy
+#### 2. Execute Learned Policy (`policy.py`)
 
-Run the inference script. This loads the model, connects to the camera (RealSense/Webcam), and streams actions to the robot via ROS.
+Run the inference script. You **must** specify the correct `model_type` used during training.
+
+**Option A: Running the Full Context CVAE (Best Performance)**
 
 ```bash
-python deployment.py \
-  --model_path /media/jerry/SSD/checkpoints/best_iris_cvae_mixed_v1.pth \
-  --model_type transformer_cvae \
-  --camera_id 0
-
+python policy.py \
+  --model_type cvae_full \
+  --checkpoint ~/Desktop/checkpoints/best_cvae_full_desktop_v1.pth \
+  --stats_path ~/Desktop/final_RGB_joint_goal/dataset_stats.pkl \
+  --device cuda \
+  --real_robot  # Remove this flag to test in Simulation
 ```
 
+**Option B: Running the RGB-Only Baseline**
+
+```bash
+python policy.py \
+  --model_type det_rgb \
+  --checkpoint ~/Desktop/checkpoints/best_det_rgb_desktop_v1.pth \
+  --stats_path ~/Desktop/final_RGB_only/dataset_stats.pkl \
+  --device cuda \
+  --real_robot
+```
+
+**Key Flags:**
+
+* `--model_type`: Must match the training key (e.g., `cvae_full`, `det_rgb`, `vanilla_bc`).
+* `--stats_path`: Path to the statistics file (usually inside your dataset folder) to un-normalize the robot actions.
+* `--vis`: Opens a window showing the live camera feed and the goal image overlay.
+
 <p align="center">
-<img src="docs/media/real_robot_inference.gif" width="75%">
+
 </p>
 
 ---
 
 ### 📊 Training Pipeline Summary
 
-1. **Input:** Raw Episodes → `processed_data` (on SSD).
-2. **Loader:** `IRISClipDataset` samples sequence chunks () and future goals.
-3. **Model:** `ACT_CVAE_Optimized` (Transformer + CVAE) predicts actions.
-4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
-5. **Output:** `best_iris_cvae_mixed_v1.pth` is ready for deployment.
+1. **Input:** Resized Clips (224x224) from `~/Desktop/final_RGB_*`.
+2. **Loader:** `IRISClipDataset` samples sequence chunks (Seq=8) and future goals (Future=15).
+3. **Model:**
+* **CVAE:** `CVAE_RGB_Joints_Goal_Absolute` (Generative)
+* **Det:** `Transformer_Absolute` (Deterministic)
+* **BC:** `VanillaBC_Visual_Absolute` (CNN Baseline)
 
----
+
+4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
+5. **Output:** `best_*.pth` is saved to `~/Desktop/checkpoints` for deployment.
+
+--- 
 
 ## 💻 System Requirements
 
@@ -900,18 +977,19 @@ python deployment.py \
 - ROS Noetic
 - Intel RealSense RGB-D camera
 - Unitree GO-M8010-6 actuators
-- NVIDIA GPU recommended for IL training - Training time takes about 30 hours on Nvidia 4090 GPU for 200 epoch
+- NVIDIA GPU recommended for IL training - Training time takes about 8 hours on Nvidia 4090 GPU for 100 epoch
 
 ---
 
 ## 📄 Citation
 
 ```
-@article{cheng2026iris,
-  title={IRIS: Learning-Driven Task-Specific Robot Arm for Visuomotor Motion Control},
-  author={Cheng, Qilong and others},
-  journal={Under Review},
-  year={2026}
+@inproceedings{cheng2026iris,
+  title={IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control},
+  author={Cheng, Qilong and Mackay, Matthew and Bereyhi, Ali},
+  booktitle={Conference on Computer and Robot Vision (CRV)},
+  year={2026},
+  note={Under Review}
 }
 ```
 
