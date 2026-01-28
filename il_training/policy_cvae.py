@@ -43,6 +43,28 @@ transform = transforms.Compose([
 ]) 
 
 # =========================================================================
+# VISUAL CRITIC (Similarity Metric)
+# =========================================================================
+class VisualCritic(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        # Load pre-trained ResNet18
+        weights = models.ResNet18_Weights.IMAGENET1K_V1
+        base = models.resnet18(weights=weights)
+        # Remove classification layer (output: 512 feature vector)
+        self.encoder = nn.Sequential(*list(base.children())[:-1])
+        self.device = device
+        self.to(device)
+        self.eval()
+
+    def get_embedding(self, img_tensor):
+        """Expects normalized tensor (B, C, H, W)"""
+        with torch.no_grad():
+            emb = self.encoder(img_tensor).flatten(start_dim=1)
+            emb = torch.nn.functional.normalize(emb, p=2, dim=1)
+        return emb
+
+# =========================================================================
 # SHARED HELPER MODULES
 # =========================================================================
 
@@ -235,7 +257,7 @@ class IRISController:
         if self.model_type not in ['full', 'visual', 'rgb']:
             raise ValueError("Invalid type. Choose: 'full', 'visual', or 'rgb'")
 
-        # 1. Load Model
+        # 1. Load Policy Model
         print(f"Loading Model: {model_path} [Type: {self.model_type}]")
         
         if self.model_type == 'full':
@@ -251,21 +273,35 @@ class IRISController:
             checkpoint = torch.load(model_path, map_location=self.device)
             self.model.load_state_dict(checkpoint)
             self.model.eval()
-            print("Model Loaded Successfully.")
+            print("Policy Model Loaded Successfully.")
         except RuntimeError as e:
             print(f"\n[ERROR] Architecture Mismatch! Did you select the correct --type?\n{e}")
             exit(1)
 
-        # 2. Load Goal (if required)
+        # 2. Load Visual Critic & Goal
+        self.critic = VisualCritic(self.device)
         self.goal_tensor = None
-        if self.model_type in ['full', 'visual']:
+        self.goal_embedding = None
+
+        if self.model_type in ['full', 'visual'] or goal_image_path:
+            # We load the goal for the Critic even if the RGB-only model doesn't use it for control
             if not goal_image_path or not os.path.exists(goal_image_path):
-                raise ValueError("This model type requires a --goal image!")
-            
-            print(f"Loading Goal: {goal_image_path}")
-            self.goal_name_str = os.path.basename(goal_image_path)
-            raw_goal = PILImage.open(goal_image_path).convert("RGB")
-            self.goal_tensor = transform(raw_goal).unsqueeze(0).to(self.device)
+                # Only raise error if model REQUIRES goal
+                if self.model_type in ['full', 'visual']:
+                    raise ValueError("This model type requires a --goal image!")
+                else:
+                    print("Warning: No goal image provided. Visual Similarity tracking disabled.")
+            else:
+                print(f"Loading Goal: {goal_image_path}")
+                self.goal_name_str = os.path.basename(goal_image_path)
+                raw_goal = PILImage.open(goal_image_path).convert("RGB")
+                
+                # Preprocess for Policy (if needed)
+                self.goal_tensor = transform(raw_goal).unsqueeze(0).to(self.device)
+                
+                # Preprocess for Critic (Calculate Embedding Once)
+                self.goal_embedding = self.critic.get_embedding(self.goal_tensor)
+                print("Goal Embedding Cached.")
 
         # 3. Buffers
         self.image_buffer = deque(maxlen=SEQ_LEN)
@@ -274,6 +310,7 @@ class IRISController:
         
         self.prev_target_q = None 
         self.joint_names = []
+        self.latest_similarity = 0.0
         
         self.setup_logging()
 
@@ -297,7 +334,7 @@ class IRISController:
         self.log_file = open(self.csv_filename, 'w', newline='')
         self.csv_writer = csv.writer(self.log_file)
         
-        header = ["timestamp", "model_type", "goal_image"]
+        header = ["timestamp", "model_type", "goal_image", "similarity_score"]
         header.extend([f"curr_j{i}" for i in range(6)])
         header.extend([f"cmd_j{i}" for i in range(6)])
         header.extend([f"step_diff_j{i}" for i in range(6)])
@@ -314,6 +351,13 @@ class IRISController:
                 pil_img = PILImage.fromarray(cv_img)
                 img_tensor = transform(pil_img).to(self.device)
                 
+                # --- Update Similarity Score ---
+                # We calculate this on the latest frame (no need for buffer)
+                if self.goal_embedding is not None:
+                    curr_emb = self.critic.get_embedding(img_tensor.unsqueeze(0))
+                    # Cosine Similarity = Dot Product (since normalized)
+                    self.latest_similarity = torch.sum(self.goal_embedding * curr_emb).item()
+
                 joints = np.array(joint_msg.position[:6], dtype=np.float32)
                 
                 self.image_buffer.append(img_tensor)
@@ -376,12 +420,18 @@ class IRISController:
                     target_q, step_mag, step_diff, current_q = result
                     
                     if counter % 10 == 0:
-                        print("-" * 30)
+                        sim_status = f"Sim Score: {self.latest_similarity:.4f}"
+                        if self.latest_similarity > 0.95:
+                            sim_status += " [LOCKED]"
+                        elif self.latest_similarity > 0.90:
+                            sim_status += " [ALIGNED]"
+                            
+                        print("-" * 40)
                         print(f"Cmd Joint: {np.round(target_q, 4)}")
-                        print(f"Max Jump:  {step_mag:.4f}")
+                        print(f"Max Jump:  {step_mag:.4f} | {sim_status}")
                     
                     # CSV Log
-                    row = [time.time(), self.model_type, self.goal_name_str]
+                    row = [time.time(), self.model_type, self.goal_name_str, self.latest_similarity]
                     row.extend(current_q.tolist()) 
                     row.extend(target_q.tolist())  
                     row.extend(step_diff.tolist()) 

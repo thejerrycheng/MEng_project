@@ -4,6 +4,17 @@ from torchvision import models, transforms
 from PIL import Image
 import argparse
 import os
+import time
+import logging
+
+# ---------------------------------------------------------
+# 0. Configure Logging
+# ---------------------------------------------------------
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s", 
+    datefmt="%H:%M:%S",
+    level=logging.INFO
+)
 
 # ---------------------------------------------------------
 # 1. Feature Extractor Setup (ResNet18)
@@ -28,8 +39,8 @@ class FeatureExtractor(nn.Module):
         try:
             img = Image.open(img_path).convert("RGB")
         except Exception as e:
-            print(f"Error loading {img_path}: {e}")
-            return None
+            logging.error(f"Failed to load image: {img_path} | Error: {e}")
+            return None, 0.0
 
         # Standard ImageNet normalization
         preprocess = transforms.Compose([
@@ -42,12 +53,14 @@ class FeatureExtractor(nn.Module):
         img_tensor = preprocess(img).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            # Extract features
+            # Extract features & Measure Time
+            start_feat = time.time()
             emb = self.encoder(img_tensor).flatten(start_dim=1)
             # Normalize to unit length for Cosine Similarity
             emb = torch.nn.functional.normalize(emb, p=2, dim=1)
-        
-        return emb
+            end_feat = time.time()
+            
+        return emb, (end_feat - start_feat) * 1000 # Return ms
 
 def main():
     parser = argparse.ArgumentParser(description="Calculate Visual Similarity between two images.")
@@ -57,20 +70,39 @@ def main():
 
     # Setup Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using Device: {device}")
     
     # Initialize Model
+    logging.info("Loading ResNet18 Feature Extractor...")
+    model_start = time.time()
     extractor = FeatureExtractor(device)
+    model_load_time = (time.time() - model_start) * 1000
+    logging.info(f"Model Loaded in {model_load_time:.2f} ms")
 
     # Get Embeddings
-    goal_emb = extractor.get_embedding(args.goal)
-    test_emb = extractor.get_embedding(args.test)
+    logging.info(f"Processing Goal Image: {os.path.basename(args.goal)}")
+    goal_emb, goal_time = extractor.get_embedding(args.goal)
+    
+    logging.info(f"Processing Test Image: {os.path.basename(args.test)}")
+    test_emb, test_time = extractor.get_embedding(args.test)
 
     if goal_emb is not None and test_emb is not None:
         # Calculate Cosine Similarity
-        # Since vectors are normalized, Dot Product == Cosine Similarity
+        start_sim = time.time()
         similarity = torch.sum(goal_emb * test_emb).item()
+        sim_time = (time.time() - start_sim) * 1000
         
-        # Output strictly the number (useful for piping to other scripts)
+        # Summary Log
+        logging.info("-" * 40)
+        logging.info(f"Similarity Score: {similarity:.4f}")
+        logging.info("-" * 40)
+        logging.info(f"Timing Breakdown:")
+        logging.info(f"  Goal Feature Extraction: {goal_time:.2f} ms")
+        logging.info(f"  Test Feature Extraction: {test_time:.2f} ms")
+        logging.info(f"  Similarity Calculation:  {sim_time:.4f} ms")
+        logging.info(f"  Total Inference Time:    {goal_time + test_time + sim_time:.2f} ms")
+        
+        # Print raw number at the very end (useful for bash scripts)
         print(f"{similarity:.4f}")
 
 if __name__ == "__main__":
