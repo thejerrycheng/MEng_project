@@ -124,25 +124,25 @@ each joint frame is attached such that the (z_i)-axis aligns with joint (i)'s ro
 
 **Standard DH Convention**
 
-| Joint | Description    | (a_i) (m) | (\alpha_i) (deg) | (d_i) (m) | (\theta_i^{off}) (deg) |
-| ----- | -------------- | --------- | ---------------- | --------- | ---------------------- |
-| J1    | Base yaw       | 0.0000    | 0.0              | 0.2487    | 0.0                    |
-| J2    | Shoulder pitch | 0.0218    | 90.0             | 0.0590    | 180.0                  |
-| J3    | Arm pitch      | 0.2998    | 0.0              | 0.0000    | 0.0                    |
-| J4    | Elbow pitch    | 0.0200    | 90.0             | 0.0000    | 0.0                    |
-| J5    | Wrist pitch    | 0.3251    | -90.0            | 0.0000    | 0.0                    |
-| J6    | Wrist roll     | 0.0428    | 90.0             | 0.0000    | 0.0                    |
+| Joint | Description    | $(a_i)$ (m) | $(\alpha_i)$ (deg) | $(d_i)$ (m) | $(\theta_i^{off})$$ (deg) |
+| ----- | -------------- | ----------- | ------------------ | ----------- | ------------------------- |
+| J1    | Base yaw       | 0.0000      | 0.0                | 0.2487      | 0.0                       |
+| J2    | Shoulder pitch | 0.0218      | 90.0               | 0.0590      | 180.0                     |
+| J3    | Arm pitch      | 0.2998      | 0.0                | 0.0000      | 0.0                       |
+| J4    | Elbow pitch    | 0.0200      | 90.0               | 0.0000      | 0.0                       |
+| J5    | Wrist pitch    | 0.3251      | -90.0              | 0.0000      | 0.0                       |
+| J6    | Wrist roll     | 0.0428      | 90.0               | 0.0000      | 0.0                       |
 
 Where:
 
-- (a_i): link length
-- (\alpha_i): link twist
-- (d_i): link offset
-- (\theta_i^{off}): constant joint angle offset
+- $(a_i)$: link length
+- $(\alpha_i)$: link twist
+- $(d_i)$: link offset
+- $(\theta_i^{off})$: constant joint angle offset
 - Actual joint angle:
-  [
+  $$
   \theta_i = \theta_i^{off} + q_i
-  ]
+  $$
 
 <p align="center">
   <img src="images/kinematics.png" width="20%">
@@ -154,7 +154,7 @@ Where:
 
 The homogeneous transform from frame (i-1) to frame (i) is:
 
-[
+$$
 T_i =
 \begin{bmatrix}
 \cos\theta_i & -\sin\theta_i\cos\alpha_i & \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \
@@ -162,13 +162,13 @@ T_i =
 0 & \sin\alpha_i & \cos\alpha_i & d_i \
 0 & 0 & 0 & 1
 \end{bmatrix}
-]
+$$
 
 The end-effector pose is computed as:
 
-[
+$$
 T_{0}^{6} = \prod_{i=1}^{6} T_i
-]
+$$
 
 This transformation is implemented in:
 
@@ -706,7 +706,6 @@ Each episode also includes metadata:
 
 This allows exact temporal reconstruction for evaluation.
 
-
 <p align="center">
   <img src="images/data.png" width="50%">
 </p>
@@ -736,11 +735,11 @@ Visuomotor imitation learning is implemented using an **Action‑Conditioned Tra
 
 The training objective combines three terms:
 
-L = L_mse + λ_cont · L_cont + λ_goal · L_goal
+$$L = L_{mse} + λ_{cont} · L_{cont} + λ_{goal} · L_{goal}$$
 
-Trajectory reconstruction: L*mse = || Δq̂*(1:F) − Δq\_(1:F) ||²
-Continuity regularization: L_cont = || Δq̂_1 ||²
-Goal consistency: L_goal = || (q_t + Δq̂_F) − q_goal ||²
+Trajectory reconstruction: $ L*mse = || Δq̂*(1:F) − Δq\_(1:F) ||²$
+Continuity regularization:$ L*{cont} = || Δq̂_1 ||²$
+Goal consistency:$ L*{goal} = || (q*t + Δq̂_F) − q*{goal} ||²$
 
 This encourages smooth initial motion, accurate trajectory imitation, and convergence to the goal configuration.
 
@@ -763,6 +762,7 @@ Each sample provides:
 | goal_joint | (B, 6)              | Target joint configuration       |
 
 ---
+
 ### 🏋️ Training & Ablation Studies
 
 Our framework supports three distinct model architectures for ablation studies: **CVAE (Generative)**, **Deterministic Transformer**, and **Vanilla CNN-BC**. Each can be trained on specific data modalities (RGB-only, Visual Goal, or Full Context).
@@ -773,14 +773,14 @@ Our framework supports three distinct model architectures for ablation studies: 
 
 The CVAE models are our primary generative baselines, handling multi-modal distributions using a latent space.
 
-* **Script:** `train_cvae.py`
-* **Loss:** `--loss loss_kl` (MSE + KL Divergence + Smoothness)
+- **Script:** `train_cvae.py`
+- **Loss:** `--loss loss_kl` (MSE + KL Divergence + Smoothness)
 
-| Modality | Inputs Used | Command Model Key |
-| --- | --- | --- |
-| **RGB Only** | Image Sequence  Action | `--model cvae_rgb` |
-| **Visual Servoing** | Image Seq + Goal Image  Action | `--model cvae_visual` |
-| **Full Context** | Image Seq + Goal + Joint History  Action | `--model cvae_full` |
+| Modality            | Inputs Used                             | Command Model Key     |
+| ------------------- | --------------------------------------- | --------------------- |
+| **RGB Only**        | Image Sequence Action                   | `--model cvae_rgb`    |
+| **Visual Servoing** | Image Seq + Goal Image Action           | `--model cvae_visual` |
+| **Full Context**    | Image Seq + Goal + Joint History Action | `--model cvae_full`   |
 
 **Example Command (Full Context):**
 
@@ -806,14 +806,14 @@ python train_cvae.py \
 
 These models use the same Transformer backbone as the CVAE but without the latent variable. They serve as strong baselines for single-mode tasks.
 
-* **Script:** `train_determinstic.py`
-* **Loss:** `--loss mse_smooth` (MSE + Smoothness)
+- **Script:** `train_determinstic.py`
+- **Loss:** `--loss mse_smooth` (MSE + Smoothness)
 
-| Modality | Inputs Used | Command Model Key |
-| --- | --- | --- |
-| **RGB Only** | Image Sequence  Action | `--model det_rgb` |
-| **Visual Servoing** | Image Seq + Goal Image  Action | `--model det_visual` |
-| **Full Context** | Image Seq + Goal + Joint History  Action | `--model det_full` |
+| Modality            | Inputs Used                             | Command Model Key    |
+| ------------------- | --------------------------------------- | -------------------- |
+| **RGB Only**        | Image Sequence Action                   | `--model det_rgb`    |
+| **Visual Servoing** | Image Seq + Goal Image Action           | `--model det_visual` |
+| **Full Context**    | Image Seq + Goal + Joint History Action | `--model det_full`   |
 
 **Example Command (RGB Only Ablation):**
 
@@ -834,8 +834,8 @@ python train_determinstic.py \
 
 A classic ResNet34 + MLP architecture. This serves as the "simple baseline" to prove the value of the Transformer/CVAE architecture.
 
-* **Script:** `train_cnn_bc.py`
-* **Data Requirement:** Requires Full Context (Images + Joints + Goal) by default.
+- **Script:** `train_cnn_bc.py`
+- **Data Requirement:** Requires Full Context (Images + Joints + Goal) by default.
 
 **Example Command:**
 
@@ -849,11 +849,10 @@ python train_cnn_bc.py \
 
 **Key Deployment Flags:**
 
-* `--model_type`: Must match the model you trained (e.g., `cvae_rgb`, `det_visual`, `vanilla_bc`).
-* `--vis`: Enables the visualization window (shows live camera feed + goal image).
-* `--real_robot`: Connects to the real physical robot hardware (requires drivers).
-* `--sim`: Runs the policy in the MuJoCo simulation environment.
-
+- `--model_type`: Must match the model you trained (e.g., `cvae_rgb`, `det_visual`, `vanilla_bc`).
+- `--vis`: Enables the visualization window (shows live camera feed + goal image).
+- `--real_robot`: Connects to the real physical robot hardware (requires drivers).
+- `--sim`: Runs the policy in the MuJoCo simulation environment.
 
 #### 3. Continue Training of the Previous Model or Finetuning
 
@@ -871,16 +870,15 @@ python continue_train.py \
    --num_workers 8
 ```
 
-
 ### 📂 Where is Everything Saved?
 
 We now organize outputs directly on the Desktop for easier access and monitoring.
 
-| File Type | Location | Description |
-| --- | --- | --- |
-| **Checkpoints** | `~/Desktop/checkpoints/` | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
-| **Loss Plots** | `~/Desktop/checkpoints/plots/` | Visual graphs of Train vs Val loss and raw CSV history. |
-| **Dataset** | `~/Desktop/final_RGB_...` | The resized training datasets (RGB-only, Joint+Goal, etc.). |
+| File Type       | Location                       | Description                                                        |
+| --------------- | ------------------------------ | ------------------------------------------------------------------ |
+| **Checkpoints** | `~/Desktop/checkpoints/`       | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
+| **Loss Plots**  | `~/Desktop/checkpoints/plots/` | Visual graphs of Train vs Val loss and raw CSV history.            |
+| **Dataset**     | `~/Desktop/final_RGB_...`      | The resized training datasets (RGB-only, Joint+Goal, etc.).        |
 
 ---
 
@@ -945,9 +943,9 @@ python policy.py \
 
 **Key Flags:**
 
-* `--model_type`: Must match the training key (e.g., `cvae_full`, `det_rgb`, `vanilla_bc`).
-* `--stats_path`: Path to the statistics file (usually inside your dataset folder) to un-normalize the robot actions.
-* `--vis`: Opens a window showing the live camera feed and the goal image overlay.
+- `--model_type`: Must match the training key (e.g., `cvae_full`, `det_rgb`, `vanilla_bc`).
+- `--stats_path`: Path to the statistics file (usually inside your dataset folder) to un-normalize the robot actions.
+- `--vis`: Opens a window showing the live camera feed and the goal image overlay.
 
 <p align="center">
 
@@ -960,15 +958,15 @@ python policy.py \
 1. **Input:** Resized Clips (224x224) from `~/Desktop/final_RGB_*`.
 2. **Loader:** `IRISClipDataset` samples sequence chunks (Seq=8) and future goals (Future=15).
 3. **Model:**
-* **CVAE:** `CVAE_RGB_Joints_Goal_Absolute` (Generative)
-* **Det:** `Transformer_Absolute` (Deterministic)
-* **BC:** `VanillaBC_Visual_Absolute` (CNN Baseline)
 
+- **CVAE:** `CVAE_RGB_Joints_Goal_Absolute` (Generative)
+- **Det:** `Transformer_Absolute` (Deterministic)
+- **BC:** `VanillaBC_Visual_Absolute` (CNN Baseline)
 
 4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
 5. **Output:** `best_*.pth` is saved to `~/Desktop/checkpoints` for deployment.
 
---- 
+---
 
 ## 💻 System Requirements
 
