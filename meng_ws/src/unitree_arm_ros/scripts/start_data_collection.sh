@@ -2,20 +2,14 @@
 set -e
 
 # =============================
-# External SSD Configuration
+# Configuration
 # =============================
 
-SSD_MOUNT="/media/jerry/SSD"
-DATA_DIR="$SSD_MOUNT/rosbag_data"
+# Save directly to a folder on the Desktop
+# We use $HOME because '~' does not always expand correctly inside scripts
+DATA_DIR="$HOME/Desktop/rosbag_data"
 
-# -----------------------------
-# Check SSD is mounted
-# -----------------------------
-if [[ ! -d "$SSD_MOUNT" ]]; then
-  echo "❌ ERROR: External SSD not found at: $SSD_MOUNT"
-  exit 1
-fi
-
+# Create the directory if it doesn't exist
 mkdir -p "$DATA_DIR"
 
 # -----------------------------
@@ -70,20 +64,18 @@ if [[ "$OBSTACLE" == true ]]; then
 else
   echo " Environment: NO obstacle"
 fi
-echo " Saving to: $DATA_DIR/"
+echo " Saving to: $DATA_DIR"
 echo " format: ${FINAL_PREFIX}_#.bag"
 echo " Chunk length: 100 seconds per bag"
 echo " Press Ctrl+C to stop recording"
 echo "=========================================="
 
+# Move into the target directory so split files are saved there
 cd "$DATA_DIR"
 
 # -----------------------------
 # Record topics with auto split
 # -----------------------------
-# Note: -O specifies the base name. 
-# --split automatically appends _0, _1, etc. to the end.
-
 rosbag record \
   --lz4 \
   --split \
@@ -97,4 +89,4 @@ rosbag record \
   /camera/color/camera_info \
   /camera/depth/image_rect_raw \
   /camera/depth/camera_info \
-  /camera/extrinsics/depth_to_color \
+  /camera/extrinsics/depth_to_color
