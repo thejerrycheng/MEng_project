@@ -10,7 +10,8 @@
   <a href="#4️⃣-ros-interface-and-rosbag-collection">4️⃣ ROS + Rosbags</a> •
   <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
   <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
-  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a>
+  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a> • 
+  <a hred="#8️⃣-metrics-benchmarking"> 8️⃣ Metrics</a> 
 </p>
 
 > **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
@@ -38,8 +39,16 @@ MEng_project/
 ├── paper/                   # LaTeX source for accompanying paper
 └── README.md
 ```
+## 💻 System Requirements
 
----
+- Python ≥ 3.9
+- MuJoCo ≥ 2.3
+- ROS Noetic
+- Intel RealSense RGB-D camera
+- Unitree GO-M8010-6 actuators
+- NVIDIA GPU recommended for IL training - Training time takes about 8 hours on Nvidia 4090 GPU for 100 epoch
+
+
 
 ## 1️⃣ Hardware Platform
 
@@ -980,7 +989,7 @@ python policy.py \
 
 ---
 
-### 📊 Training Pipeline Summary
+###  Training Pipeline Summary
 
 1. **Input:** Resized Clips (224x224) from `~/Desktop/final_RGB_*`.
 2. **Loader:** `IRISClipDataset` samples sequence chunks (Seq=8) and future goals (Future=15).
@@ -993,16 +1002,110 @@ python policy.py \
 4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
 5. **Output:** `best_*.pth` is saved to `~/Desktop/checkpoints` for deployment.
 
+
+Here is a friendly, interactive **README** section for your project! 🚀
+
 ---
 
-## 💻 System Requirements
+## 8️⃣ Metrics & Benchmarking
 
-- Python ≥ 3.9
-- MuJoCo ≥ 2.3
-- ROS Noetic
-- Intel RealSense RGB-D camera
-- Unitree GO-M8010-6 actuators
-- NVIDIA GPU recommended for IL training - Training time takes about 8 hours on Nvidia 4090 GPU for 100 epoch
+Welcome to the **Metrics Suite**! This is where we prove that our robot isn't just moving—it's *making art* (or at least trying to). We use a combination of **Offline Analysis** for deep dives and **Live Logging** for real-time feedback.
+
+### 🛠️ Prerequisites
+
+Make sure you have the magic libraries installed before starting:
+
+```bash
+pip install mujoco pandas scipy ultralytics colorama tqdm
+
+```
+
+---
+
+### 🟢 A. Offline Benchmarking (The Deep Dive)
+
+Have a folder full of recorded episodes? Use `offline_metric_logger_mujoco.py` to crunch the numbers. It calculates **Cartesian Jerk** (using MuJoCo FK), **Visual Alignment**, and **Framing Error** for every single episode.
+
+**🏃 How to Run:**
+
+```bash
+python3 offline_metric_logger_mujoco.py \
+  --root /path/to/your/episodes_folder \
+  --goal /path/to/goal_image.png \
+  --xml iris.xml \
+  --num 10
+
+```
+
+**📝 Arguments:**
+
+* `--root`: Folder containing your recorded episodes (e.g., `processed_policy_full`).
+* `--goal`: The "Golden Standard" image the robot should match.
+* `--xml`: Path to your robot's MuJoCo XML (needed for kinematics!).
+* `--num`: Limit how many episodes to process (Default: 10).
+
+**✨ Output:**
+You'll see a beautiful color-coded table in your terminal:
+
+```text
+[Ep 001] Vis: 0.962 | Status: SUCCESS | Jerk: 0.8200 | Len: 0.65m
+[Ep 002] Vis: 0.720 | Status: FAIL    | Jerk: 4.5000 | Len: 0.10m
+
+```
+
+It also saves a detailed `.csv` file in the root folder.
+
+---
+
+### 🔴 B. Live Deployment & Logging
+
+Want to see how the policy performs in the real world? The deployment script runs the neural network **AND** logs metrics in real-time!
+
+**🏃 How to Run:**
+
+```bash
+python3 deploy_cnn_policy.py \
+  --checkpoint /path/to/best_model.pth \
+  --goal /path/to/goal_image.png
+
+```
+
+**👀 What you see:**
+
+* **Real-time Similarity:** "Sim Score: 0.92 [ALIGNED]" printed to the console.
+* **Safety Checks:** Logs the maximum jump (delta) in joint angles.
+* **CSV Log:** Automatically creates a timestamped file `deploy_cnn_...csv` recording every step.
+
+---
+
+### 📈 C. The Summary Generator
+
+Too many CSV files? Don't do the math yourself! Use `summarize_metrics.py` to aggregate everything into one neat report.
+
+**🏃 How to Run:**
+
+```bash
+# Run inside the folder containing your metric CSVs
+python3 summarize_metrics.py
+
+```
+
+**✨ Magic Features:**
+
+* **Auto-Discovery:** Finds all `*metrics.csv` files in the folder.
+* **Auto-Merge:** Automatically groups `policy_full` and `policy_full2` into one dataset.
+* **The Big Table:** Generates the final comparison table you need for the paper! 📄
+
+```text
+Method       Success Rate (%)   Avg Vis. Align   Avg Jerk
+expert       90.0               0.874            3.64
+policy_full  46.2               0.847            0.61
+
+```
+
+
+
+
 
 ---
 
