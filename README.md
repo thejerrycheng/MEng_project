@@ -282,6 +282,12 @@ python velocity_teleop.py             # Velocity control demo
   <img src="videos/repeatability-ezgif.com-video-to-gif-converter.gif" width="80%">
 </p>
 
+### Path Following Test 
+
+<p align="center">
+  <img src="videos/circle_path_tracking.gif" width="80%">
+</p>
+
 ---
 
 ## 3️⃣ MuJoCo Simulation
@@ -404,9 +410,26 @@ This starts:
 
 ### 🎮 Keyboard Teleoperation
 
+Teleoperate in the Cartesian space: 
+
 ```bash
-roslaunch unitree_arm_ros keyboard_teleop.launch
+rosrun unitree_arm_ros teleop_ik.py
 ```
+
+Teleoperate in joint space: 
+
+```bash
+rosrun unitree_arm_ros teleop_joint.py
+```
+
+<p align="center">
+  <img src="videos/fk.gif" width="60%">
+</p>
+
+<p align="center">
+  <img src="videos/ik.gif" width="60%">
+</p>
+
 
 This launches:
 
@@ -501,6 +524,10 @@ Capabilities:
 /joint_states → teach_and_repeat → CSV log
 teach_and_repeat → /arm/command → iris_hw_node
 ```
+
+<p align="center">
+  <img src="images/low_level.png " width="60%">
+</p>
 
 ---
 
