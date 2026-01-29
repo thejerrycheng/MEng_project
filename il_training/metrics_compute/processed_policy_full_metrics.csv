@@ -1,0 +1,10 @@
+episode,visual_alignment,status,success_flag,srr_percent,framing_error_px,cartesian_jerk,path_length_m
+policy_full_test_2_20260128_204439_0_episode_0001,0.9112,SUCCESS,1,93.2,89.4,0.83761,0.41
+policy_full_test_2_20260128_204439_0_episode_0002,0.7992,FAIL,0,64.3,100.5,0.482623,0.4056
+policy_full_test_2_20260128_204439_1_episode_0001,0.8017,SEMI,0,38.7,128.7,0.685775,0.5087
+policy_full_test_2_20260128_204439_1_episode_0002,0.8724,SUCCESS,1,38.7,166.8,0.832375,0.6518
+policy_full_test_2_20260128_204439_2_episode_0001,0.766,FAIL,0,0.0,252.3,0.611129,0.8005
+policy_full_test_2_20260128_204439_2_episode_0002,0.7745,FAIL,0,14.6,208.3,0.663345,0.6307
+policy_full_test_2_20260128_204439_3_episode_0001,0.7404,FAIL,0,31.0,221.3,0.592756,0.8553
+policy_full_test_2_20260128_204439_3_episode_0002,0.7486,FAIL,0,0.2,266.7,0.62686,0.8766
+policy_full_test_2_20260128_204439_6_episode_0001,0.8436,SEMI,0,16.7,188.4,0.664939,0.3752

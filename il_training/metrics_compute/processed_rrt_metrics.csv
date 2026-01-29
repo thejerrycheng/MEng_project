@@ -1,0 +1,5 @@
+episode,visual_alignment,status,success_flag,srr_percent,framing_error_px,cartesian_jerk,path_length_m
+rrt_test1_20260127_120326_0_episode_0001,0.6464,FAIL,0,0.0,221.9,0.23073,0.6055
+rrt_test1_20260127_120326_0_episode_0002,0.5878,FAIL,0,13.9,224.1,0.206355,0.5762
+rrt_test1_20260127_120326_0_episode_0003,0.7072,FAIL,0,2.5,253.3,0.222801,0.5559
+rrt_test1_20260127_120326_1_episode_0001,0.6008,FAIL,0,25.6,179.0,0.23153,0.5666
