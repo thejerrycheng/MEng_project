@@ -1,0 +1,5 @@
+episode,visual_alignment,status,success_flag,srr_percent,framing_error_px,cartesian_jerk,path_length_m
+cvisual_test_2_20260129_154823_0_episode_0001,0.494,FAIL,0,0.0,268.8,1.495178,1.2726
+cvisual_test_2_20260129_154823_0_episode_0002,0.6053,FAIL,0,7.3,133.9,1.528895,2.0155
+cvisual_test_2_20260129_154823_0_episode_0003,0.5154,FAIL,0,10.8,128.2,1.669992,2.1233
+cvisual_test_2_20260129_154823_0_episode_0004,0.5309,FAIL,0,10.9,117.5,1.647081,1.6834

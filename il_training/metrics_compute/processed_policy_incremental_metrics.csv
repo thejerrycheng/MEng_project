@@ -1,0 +1,7 @@
+episode,visual_alignment,status,success_flag,srr_percent,framing_error_px,cartesian_jerk,path_length_m
+cvincremental_test_1_20260129_155450_0_episode_0001,0.7192,FAIL,0,63.7,87.3,1.124395,0.4567
+cvincremental_test_1_20260129_155450_0_episode_0002,0.561,FAIL,0,27.2,86.0,0.722356,0.3932
+cvincremental_test_1_20260129_155450_0_episode_0003,0.5967,FAIL,0,45.7,131.5,0.881177,0.3149
+cvincremental_test_1_20260129_155450_1_episode_0001,0.5957,FAIL,0,37.6,126.4,0.645569,0.5755
+cvincremental_test_1_20260129_155450_1_episode_0002,0.6832,FAIL,0,29.1,58.4,0.769053,0.3436
+cvincremental_test_1_20260129_155450_1_episode_0003,0.6578,FAIL,0,7.7,129.2,0.820576,0.6084

@@ -1,0 +1,5 @@
+episode,visual_alignment,status,success_flag,srr_percent,framing_error_px,cartesian_jerk,path_length_m
+full_test_2_20260129_154025_0_episode_0001,0.8794,SUCCESS,1,52.4,140.5,0.512847,1.0368
+full_test_2_20260129_154025_0_episode_0002,0.8657,SUCCESS,1,32.1,172.3,0.404518,0.8933
+full_test_2_20260129_154025_3_episode_0001,0.8959,SUCCESS,1,14.6,238.3,0.542401,0.9884
+full_test_2_20260129_154025_3_episode_0002,0.9038,SUCCESS,1,28.0,212.7,0.508373,0.6435
