@@ -11,7 +11,7 @@
   <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
   <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
   <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a> • 
-  <a hred="#8️⃣-metrics-benchmarking"> 8️⃣ Metrics</a> 
+  <a href="#8️⃣-metrics-benchmarking"> 8️⃣ Metrics</a> 
 </p>
 
 > **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
@@ -39,6 +39,7 @@ MEng_project/
 ├── paper/                   # LaTeX source for accompanying paper
 └── README.md
 ```
+
 ## 💻 System Requirements
 
 - Python ≥ 3.9
@@ -47,8 +48,6 @@ MEng_project/
 - Intel RealSense RGB-D camera
 - Unitree GO-M8010-6 actuators
 - NVIDIA GPU recommended for IL training - Training time takes about 8 hours on Nvidia 4090 GPU for 100 epoch
-
-
 
 ## 1️⃣ Hardware Platform
 
@@ -291,7 +290,7 @@ python velocity_teleop.py             # Velocity control demo
   <img src="videos/repeatability-ezgif.com-video-to-gif-converter.gif" width="80%">
 </p>
 
-### Path Following Test 
+### Path Following Test
 
 <p align="center">
   <img src="videos/circle_path_tracking.gif" width="80%">
@@ -419,13 +418,13 @@ This starts:
 
 ### 🎮 Keyboard Teleoperation
 
-Teleoperate in the Cartesian space: 
+Teleoperate in the Cartesian space:
 
 ```bash
 rosrun unitree_arm_ros teleop_ik.py
 ```
 
-Teleoperate in joint space: 
+Teleoperate in joint space:
 
 ```bash
 rosrun unitree_arm_ros teleop_joint.py
@@ -438,7 +437,6 @@ rosrun unitree_arm_ros teleop_joint.py
 <p align="center">
   <img src="videos/ik.gif" width="60%">
 </p>
-
 
 This launches:
 
@@ -745,6 +743,7 @@ This allows exact temporal reconstruction for evaluation.
 <p align="center">
   <img src="images/data.png" width="50%">
 </p>
+
 ---
 
 ## 6️⃣ Imitation Learning
@@ -833,7 +832,7 @@ python train_cvae.py \
 ```
 
 <p align="center">
-  <img src="images/loss.png" width="100%">
+  <img src="images/loss.png" width="70%">
 </p>
 
 ---
@@ -984,12 +983,12 @@ python policy.py \
 - `--vis`: Opens a window showing the live camera feed and the goal image overlay.
 
 <p align="center">
-
+  <img src="videos/deployment.gif" width="100%">
 </p>
 
 ---
 
-###  Training Pipeline Summary
+### Training Pipeline Summary
 
 1. **Input:** Resized Clips (224x224) from `~/Desktop/final_RGB_*`.
 2. **Loader:** `IRISClipDataset` samples sequence chunks (Seq=8) and future goals (Future=15).
@@ -1002,14 +1001,13 @@ python policy.py \
 4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
 5. **Output:** `best_*.pth` is saved to `~/Desktop/checkpoints` for deployment.
 
-
 Here is a friendly, interactive **README** section for your project! 🚀
 
 ---
 
-## 8️⃣ Metrics & Benchmarking
+## 8️⃣ Metrics Benchmarking
 
-Welcome to the **Metrics Suite**! This is where we prove that our robot isn't just moving—it's *making art* (or at least trying to). We use a combination of **Offline Analysis** for deep dives and **Live Logging** for real-time feedback.
+Welcome to the **Metrics Suite**! This is where we prove that our robot isn't just moving—it's _making art_ (or at least trying to). We use a combination of **Offline Analysis** for deep dives and **Live Logging** for real-time feedback.
 
 ### 🛠️ Prerequisites
 
@@ -1039,10 +1037,10 @@ python3 offline_metric_logger_mujoco.py \
 
 **📝 Arguments:**
 
-* `--root`: Folder containing your recorded episodes (e.g., `processed_policy_full`).
-* `--goal`: The "Golden Standard" image the robot should match.
-* `--xml`: Path to your robot's MuJoCo XML (needed for kinematics!).
-* `--num`: Limit how many episodes to process (Default: 10).
+- `--root`: Folder containing your recorded episodes (e.g., `processed_policy_full`).
+- `--goal`: The "Golden Standard" image the robot should match.
+- `--xml`: Path to your robot's MuJoCo XML (needed for kinematics!).
+- `--num`: Limit how many episodes to process (Default: 10).
 
 **✨ Output:**
 You'll see a beautiful color-coded table in your terminal:
@@ -1061,6 +1059,10 @@ It also saves a detailed `.csv` file in the root folder.
 
 Want to see how the policy performs in the real world? The deployment script runs the neural network **AND** logs metrics in real-time!
 
+<p align="center">
+  <img src="images/metrics.png" width="100%">
+</p>
+
 **🏃 How to Run:**
 
 ```bash
@@ -1072,9 +1074,9 @@ python3 deploy_cnn_policy.py \
 
 **👀 What you see:**
 
-* **Real-time Similarity:** "Sim Score: 0.92 [ALIGNED]" printed to the console.
-* **Safety Checks:** Logs the maximum jump (delta) in joint angles.
-* **CSV Log:** Automatically creates a timestamped file `deploy_cnn_...csv` recording every step.
+- **Real-time Similarity:** "Sim Score: 0.92 [ALIGNED]" printed to the console.
+- **Safety Checks:** Logs the maximum jump (delta) in joint angles.
+- **CSV Log:** Automatically creates a timestamped file `deploy_cnn_...csv` recording every step.
 
 ---
 
@@ -1092,9 +1094,9 @@ python3 summarize_metrics.py
 
 **✨ Magic Features:**
 
-* **Auto-Discovery:** Finds all `*metrics.csv` files in the folder.
-* **Auto-Merge:** Automatically groups `policy_full` and `policy_full2` into one dataset.
-* **The Big Table:** Generates the final comparison table you need for the paper! 📄
+- **Auto-Discovery:** Finds all `*metrics.csv` files in the folder.
+- **Auto-Merge:** Automatically groups `policy_full` and `policy_full2` into one dataset.
+- **The Big Table:** Generates the final comparison table you need for the paper! 📄
 
 ```text
 Method       Success Rate (%)   Avg Vis. Align   Avg Jerk
@@ -1102,10 +1104,6 @@ expert       90.0               0.874            3.64
 policy_full  46.2               0.847            0.61
 
 ```
-
-
-
-
 
 ---
 
