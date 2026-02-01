@@ -982,6 +982,8 @@ python policy.py \
 - `--stats_path`: Path to the statistics file (usually inside your dataset folder) to un-normalize the robot actions.
 - `--vis`: Opens a window showing the live camera feed and the goal image overlay.
 
+To test the robustness of the policy, we tried few zero-shot initial condition, where the initial pose of IRIS is placed outside the dataset distribution. The policy still demonstrated robust recovery, especially at the end of the trajectory where it misses the target image, and tried recover to the correct image. 
+
 <p align="center">
   <img src="videos/deployment.gif" width="100%">
 </p>
