@@ -1112,12 +1112,13 @@ policy_full  46.2               0.847            0.61
 ## 📄 Citation
 
 ```
-@inproceedings{cheng2026iris,
-  title={IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control},
-  author={Cheng, Qilong and Mackay, Matthew and Bereyhi, Ali},
-  booktitle={Conference on Computer and Robot Vision (CRV)},
-  year={2026},
-  note={Under Review}
+@inproceedings{
+cheng2026iris,
+title={{IRIS}: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control},
+author={Qilong Cheng and Matthew Mackay and Ali Bereyhi},
+booktitle={23rd Conference on Robots and Vision},
+year={2026},
+url={https://openreview.net/forum?id=j7NuiOgKn3}
 }
 ```
 
