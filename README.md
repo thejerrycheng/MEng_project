@@ -1,5 +1,12 @@
 # 🎥 **IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control**
 
+## License
+This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**.
+
+### 🛡️ Commercial Use
+* **Non-Commercial:** You are free to use, share, and adapt this work for non-commercial purposes.
+* **Commercial:** Commercial use is strictly prohibited without prior authorization. 
+* **Startup/Business Inquiries:** For commercial licensing, hardware manufacturing rights, or business partnerships, please contact [Your Name/Startup Name] at [Your Email].
 <p align="center">
   <img src="images/v7_cover_photo_16_5.JPG" width="70%">
 </p>
