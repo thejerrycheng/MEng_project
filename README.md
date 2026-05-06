@@ -34,23 +34,6 @@ This project is licensed under the **MIT License**.
 > This repository provides the complete, vertically integrated stack—encompassing the **task-specific hardware CAD, MuJoCo & Isaac Lab simulation environments, low-level ROS 2 control, expert data collection pipelines, and the ACT-CVAE learning framework**.
 
 <p align="center">
-  <img src="images/v7_cover_photo_16_5.JPG" width="70%">
-</p>
-<p align="center">
-  <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
-  <a href="#2️⃣-low-level-actuator-control">2️⃣ Actuator Control</a> •
-  <a href="#3️⃣-mujoco-simulation">3️⃣ MuJoCo Simulation</a> •
-  <a href="#4️⃣-ros-interface-and-rosbag-collection">4️⃣ ROS + Rosbags</a> •
-  <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
-  <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
-  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Sim-to-Real</a> • 
-  <a href="#8️⃣-metrics-benchmarking"> 8️⃣ Metrics</a> 
-</p>
-
-> **IRIS (Intelligent Robotic Imaging System)** is a low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through visuomotor imitation learning.
-> This repository contains the complete **hardware, simulation, control, ROS data collection, and learning stack**, enabling seamless **sim-to-real and real-to-sim** workflows.
-
-<p align="center">
   <img src="images/overview.png" width="100%">
 </p>
 
