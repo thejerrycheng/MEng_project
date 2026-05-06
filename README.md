@@ -1,12 +1,38 @@
 # 🎥 **IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control**
 
-## License
-This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**.
+[![ROS 2](https://img.shields.io/badge/ROS_2-Humble-blue.svg)](https://docs.ros.org/en/humble/)
+[![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Simulation](https://img.shields.io/badge/Simulation-MuJoCo_%7C_Isaac_Lab-orange.svg)](#)
+
+## 📄 License
+This project is licensed under the **MIT License**.
 
 ### 🛡️ Commercial Use
-* **Non-Commercial:** You are free to use, share, and adapt this work for non-commercial purposes.
-* **Commercial:** Commercial use is strictly prohibited without prior authorization. 
-* **Startup/Business Inquiries:** For commercial licensing, hardware manufacturing rights, or business partnerships, please contact [Your Name/Startup Name] at [Your Email].
+* **Open Source:** You are free to use, share, modify, and use this work for commercial purposes under the terms of the MIT License.
+* **Business Inquiries:** For hardware manufacturing rights or industry partnerships, please contact Jerry (Qilong) Cheng at qc1007@nyu.edu.
+
+<br>
+
+<p align="center">
+  <img src="images/v7_cover_photo_16_5.JPG" width="70%" alt="IRIS Robot Arm Tabletop Deployment">
+</p>
+
+<p align="center">
+  <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
+  <a href="#2️⃣-low-level-actuator-control">2️⃣ Actuator Control</a> •
+  <a href="#3️⃣-mujoco-simulation">3️⃣ Simulation</a> •
+  <a href="#4️⃣-ros-interface-and-rosbag-collection">4️⃣ ROS + Data Collection</a> •
+  <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
+  <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
+  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Deployment</a> • 
+  <a href="#8️⃣-metrics-benchmarking">8️⃣ Metrics</a> 
+</p>
+
+> **IRIS (Intelligent Robotic Imaging System)** is a compact, low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through real-world visuomotor imitation learning. 
+> 
+> This repository provides the complete, vertically integrated stack—encompassing the **task-specific hardware CAD, MuJoCo & Isaac Lab simulation environments, low-level ROS 2 control, expert data collection pipelines, and the ACT-CVAE learning framework**.
+
 <p align="center">
   <img src="images/v7_cover_photo_16_5.JPG" width="70%">
 </p>
