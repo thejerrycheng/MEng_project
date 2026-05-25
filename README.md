@@ -1,37 +1,20 @@
-# 🎥 **IRIS: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control**
-
-[![ROS 2](https://img.shields.io/badge/ROS_2-Humble-blue.svg)](https://docs.ros.org/en/humble/)
-[![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Simulation](https://img.shields.io/badge/Simulation-MuJoCo_%7C_Isaac_Lab-orange.svg)](#)
-
-## 📄 License
-This project is licensed under the **MIT License**.
-
-### 🛡️ Commercial Use
-* **Open Source:** You are free to use, share, modify, and use this work for commercial purposes under the terms of the MIT License.
-* **Business Inquiries:** For hardware manufacturing rights or industry partnerships, please contact Jerry (Qilong) Cheng at qc1007@nyu.edu.
-
-<br>
+# 🎥 IRIS: Learning-Driven Cinema Robot Arm for Visuomotor Motion Control
 
 <p align="center">
-  <img src="images/v7_cover_photo_16_5.JPG" width="70%" alt="IRIS Robot Arm Tabletop Deployment">
+  <img src="images/v7_cover_photo_16_5.JPG" width="80%">
 </p>
 
 <p align="center">
-  <a href="#1️⃣-hardware-platform">1️⃣ Hardware</a> •
-  <a href="#2️⃣-low-level-actuator-control">2️⃣ Actuator Control</a> •
-  <a href="#3️⃣-mujoco-simulation">3️⃣ Simulation</a> •
-  <a href="#4️⃣-ros-interface-and-rosbag-collection">4️⃣ ROS + Data Collection</a> •
-  <a href="#5️⃣-data-processing">5️⃣ Data Processing</a> •
-  <a href="#6️⃣-imitation-learning">6️⃣ Imitation Learning</a> •
-  <a href="#7️⃣-sim-to-real-deployment">7️⃣ Deployment</a> • 
-  <a href="#8️⃣-metrics-benchmarking">8️⃣ Metrics</a> 
+  <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" />
+  <img src="https://img.shields.io/badge/ROS-Noetic-brightgreen?logo=ros" />
+  <img src="https://img.shields.io/badge/MuJoCo-2.3+-orange" />
+  <img src="https://img.shields.io/badge/PyTorch-2.0+-red?logo=pytorch" />
+  <img src="https://img.shields.io/badge/Paper-CRV%202026-purple" />
+  <img src="https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey" />
+  <img src="https://img.shields.io/badge/Cost-~%24992 USD-success" />
 </p>
 
-> **IRIS (Intelligent Robotic Imaging System)** is a compact, low-cost, 3D-printed 6-DOF cinema robot arm that learns smooth, repeatable, and obstacle-aware camera motions through real-world visuomotor imitation learning. 
-> 
-> This repository provides the complete, vertically integrated stack—encompassing the **task-specific hardware CAD, MuJoCo & Isaac Lab simulation environments, low-level ROS 2 control, expert data collection pipelines, and the ACT-CVAE learning framework**.
+> **IRIS** (Intelligent Robotic Imaging System) is a low-cost, 3D-printed 6-DOF cinema robot arm that learns cinematic camera motions from human demonstrations via visuomotor imitation learning. This repo contains the **complete hardware, simulation, ROS, data pipeline, and learning stack**.
 
 <p align="center">
   <img src="images/overview.png" width="100%">
@@ -39,89 +22,85 @@ This project is licensed under the **MIT License**.
 
 ---
 
-## 🗂 Repository Structure
+## 📦 Repository Structure
 
 ```
 MEng_project/
-├── mujoco_sim/              # MuJoCo simulation, kinematics, planners
-├── classical_planner/       # RRT*, potential-field, trajectory generation
-├── mpr_control/             # Unitree actuator SDK + low-level control
-├── motor_control/           # Motor diagnostics and testing
-├── meng_ws/                 # ROS workspace (hardware interface, teleop, logging)
-├── bag_reader/              # Rosbag recording and dataset extraction tools
-├── sim2real/                # Sim–real synchronization utilities
-├── il_training/             # Visuomotor imitation learning training code
-├── inverse_kinematics_sim/  # Analytical and numerical IK solvers
-├── paper/                   # LaTeX source for accompanying paper
-└── README.md
+├── mujoco_sim/          # MuJoCo digital twin, cinema planners, kinematics
+├── classical_planner/   # RRT*, Artificial Potential Field planners
+├── mpr_control/         # Unitree GO-M8010-6 SDK + low-level RS-485 control
+├── meng_ws/             # ROS Noetic workspace (hardware driver, teleop, data collection)
+├── bag_reader/          # Rosbag → episode extractor + interactive GUI cutter
+├── il_training/         # Imitation learning (CVAE, Transformer, CNN-BC)
+│   ├── models/          # Model architectures (CVAE, Det, VanillaBC)
+│   ├── datasets/        # Dataset loaders + clip builders
+│   ├── losses/          # KL, MSE, smoothness losses
+│   └── metrics_compute/ # Offline + live evaluation metrics
+├── sim2real/            # Sim–real synchronization utilities
+└── images/ & videos/    # Documentation assets
 ```
 
-## 💻 System Requirements
+---
 
-- Python ≥ 3.9
-- MuJoCo ≥ 2.3
-- ROS Noetic
-- Intel RealSense RGB-D camera
-- Unitree GO-M8010-6 actuators
-- NVIDIA GPU recommended for IL training - Training time takes about 8 hours on Nvidia 4090 GPU for 100 epoch
+## ⚡ Quick Start
+
+### Prerequisites
+
+| Requirement | Version |
+|---|---|
+| Python | ≥ 3.9 |
+| MuJoCo | ≥ 2.3 |
+| ROS | Noetic |
+| CUDA GPU | Recommended (RTX 4090 used for training) |
+| Intel RealSense | D435 RGB-D |
+| Actuators | Unitree GO-M8010-6 × 6 |
+
+### Install Simulation
+
+```bash
+cd mujoco_sim
+pip install -r requirement.txt
+```
+
+### Install Imitation Learning
+
+```bash
+cd il_training
+pip install torch torchvision mujoco pandas scipy ultralytics colorama tqdm
+```
+
+---
 
 ## 1️⃣ Hardware Platform
 
-IRIS is a **fully 3D-printed 6-DOF robotic camera arm** driven by **Unitree GO-M8010-6 torque-controlled BLDC actuators**.
-The design emphasizes low cost, modularity, and high backdrivability for kinesthetic teaching.
-
-### 🔩 3D Models and CAD
-
-<!-- - 📐 **Mechanical CAD (STEP + STL):**
-  👉 [https://github.com/thejerrycheng/IRIS-Hardware](https://github.com/thejerrycheng/IRIS-Hardware)
-
-- 🖨️ **Printable STL files:**
-  👉 [https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL](https://github.com/thejerrycheng/IRIS-Hardware/tree/main/STL) -->
+IRIS is a **fully 3D-printed 6-DOF** camera robot driven by **Unitree GO-M8010-6** torque-controlled BLDC motors. Designed for **backdrivability** — enabling kinesthetic teaching (hand-guided demonstrations).
 
 <p align="center">
-  <img src="images/render.png" width="70%">
+  <img src="images/render.png" width="55%">
+  <img src="images/mechanical.png" width="30%">
 </p>
 
-<p align="center">
-  <img src="images/mechanical.png" width="40%">
-</p>
+<details>
+<summary><b>📋 Bill of Materials (~$992 USD total)</b></summary>
 
-## 📦 Bill of Materials (BOM)
+| Category | Item | Qty | Unit (USD) |
+|---|---|---|---|
+| **Actuators** | Unitree Go-M8010-6 | 6 | $69.65 |
+| **Linkages** | Carbon fiber tube 25×2mm, 500mm | 1 | $27.40 |
+| **Bearings** | 26×17×5 mm | 2 | $1.59 |
+| | 50×40×6 mm | 6 | $2.61 |
+| | 42×30×7 mm | 5 | $2.43 |
+| **Transmission** | HTD-5M belt 150T (750mm) | 1 | $15.19 |
+| | HTD-5M belt 160T (800mm) | 2 | $15.56 |
+| **Fasteners** | M4 + M3.5 screw sets | 2 | $27.04 |
+| **Sensors** | Intel RealSense D435 | 1 | $163.63 |
+| **Compute** | NVIDIA Jetson Nano | 1 | $216.15 |
+| **Electronics** | RS-485 Hub, Power Supply (≥300W) | — | $35.96 |
+| **3D Printing** | PLA (30% infill, BambuLab) | 1 | $16.99 |
+| **Misc** | Wire sleeving | 1 | $9.26 |
+| | **Total** | | **~$992** |
 
-**Preliminary Bill of Materials (BOM) for the Cinema Robot Arm Prototype**
-
-| Category         | Item / Spec                                                          | Qty | Unit (USD) | Link                                                                                                                                                                                                                    |
-| ---------------- | -------------------------------------------------------------------- | --- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Actuators**    | Unitree Go-1 Actuator                                                | 6   | $69.65     | [Taobao](https://detail.tmall.com/item.htm?app=macos_safari&bxsign=scdhoDllLzLDZuz-EHtjr8oQIfUCltxl9vCbc2FvkFQds3He_R33AMzKvX9oPeP9-9TTtP0Ol2Hx3i8Njt_08LuzTDHV1xzmhh6CO4t0s4WdWa76kEhQNE4uulwyXbIJLlv&id=679335252560) |
-| **Linkages**     | Carbon fiber square tube, 25 mm width, 2 mm thickness, 500 mm length | 1   | $27.40     | [AliExpress](https://www.aliexpress.us/item/3256804047779645.html)                                                                                                                                                      |
-| **Bearings**     | Deep groove bearing 26×17×5 mm (OD×ID×Depth)                         | 2   | $1.59      | [AliExpress](https://www.aliexpress.us/item/3256804434442009.html)                                                                                                                                                      |
-|                  | Deep groove bearing 50×40×6 mm                                       | 6   | $2.61      | [Amazon](https://www.amazon.ca/dp/B085NDM5WV)                                                                                                                                                                           |
-|                  | Deep groove bearing 42×30×7 mm                                       | 5   | $2.43      | [AliExpress](https://www.aliexpress.us/item/3256808181942791.html)                                                                                                                                                      |
-| **Transmission** | HTD-5M timing belt, 150 teeth (750 mm)                               | 1   | $15.19     | [Amazon](https://www.amazon.ca/dp/B0DF57XRZ8)                                                                                                                                                                           |
-|                  | HTD-5M timing belt, 160 teeth (800 mm)                               | 2   | $15.56     | [Amazon](https://www.amazon.ca/dp/B0DF4VV4L3)                                                                                                                                                                           |
-| **Fasteners**    | M4 screws & nuts set                                                 | 1   | $16.69     | [Amazon](https://www.amazon.ca/dp/B06XQLTLHP)                                                                                                                                                                           |
-|                  | M3.5 screws & nuts set                                               | 1   | $10.35     | [Amazon](https://www.amazon.ca/dp/B08J3XLR66)                                                                                                                                                                           |
-| **Sensors**      | Intel RealSense RGB-D Camera                                         | 1   | $163.63    | [AliExpress](https://www.aliexpress.us/item/3256804447919393.html)                                                                                                                                                      |
-| **Electronics**  | NVIDIA Jetson Nano                                                   | 1   | $216.15    | [AliExpress](https://www.aliexpress.us/item/3256805156846112.html)                                                                                                                                                      |
-|                  | RS-485 Hub / Adapter                                                 | 1   | $0.99      | [AliExpress](https://www.aliexpress.us/item/2251832830864445.html)                                                                                                                                                      |
-|                  | Main Power Supply (≥300 W)                                           | 1   | $34.97     | [AliExpress](https://www.aliexpress.us/item/2251832763824772.html)                                                                                                                                                      |
-| **3D Printing**  | PLA Filament (30% infill, honeycomb interior, BambuLab)              | 1   | $16.99     | [BambuLab](https://ca.store.bambulab.com/products/pla-basic-filament)                                                                                                                                                   |
-| **Misc.**        | Wire sleeving / braided loom                                         | 1   | $9.26      | [Amazon](https://www.amazon.ca/dp/B07S73S5TD)                                                                                                                                                                           |
-
----
-
-### 💰 **Total Cost**
-
-**Estimated Total:** **$991.63 USD**
-
----
-
-### 📝 Notes
-
-- Prices reflect current online listings and may fluctuate.
-- Shipping, import duties, and taxes are not included.
-- Actuators dominate cost — alternative motor selections can significantly change total budget.
-- The BOM is sufficient for a **1 m reach, ~1.5 kg payload cinema robot arm prototype**.
+</details>
 
 <p align="center">
   <img src="images/parts.png" width="50%">
@@ -131,210 +110,116 @@ The design emphasizes low cost, modularity, and high backdrivability for kinesth
 
 ## 🦾 Robot Kinematics
 
-This section documents the **forward kinematics model** of the **IRIS cinema robot arm**, defined using the **standard Denavit–Hartenberg (DH) convention**.
-The DH parameters are used consistently across:
-
-- MuJoCo simulation model
-- Analytical forward / inverse kinematics solvers
-- Jacobian-based control
-- Trajectory planning and optimization
-
-All frames follow the **standard DH assignment**:
-each joint frame is attached such that the (z_i)-axis aligns with joint (i)'s rotation axis.
-
----
-
-### 📐 Denavit–Hartenberg Parameters
-
-**Standard DH Convention**
-
-| Joint | Description    | $(a_i)$ (m) | $(\alpha_i)$ (deg) | $(d_i)$ (m) | $(\theta_i^{off})$$ (deg) |
-| ----- | -------------- | ----------- | ------------------ | ----------- | ------------------------- |
-| J1    | Base yaw       | 0.0000      | 0.0                | 0.2487      | 0.0                       |
-| J2    | Shoulder pitch | 0.0218      | 90.0               | 0.0590      | 180.0                     |
-| J3    | Arm pitch      | 0.2998      | 0.0                | 0.0000      | 0.0                       |
-| J4    | Elbow pitch    | 0.0200      | 90.0               | 0.0000      | 0.0                       |
-| J5    | Wrist pitch    | 0.3251      | -90.0              | 0.0000      | 0.0                       |
-| J6    | Wrist roll     | 0.0428      | 90.0               | 0.0000      | 0.0                       |
-
-Where:
-
-- $(a_i)$: link length
-- $(\alpha_i)$: link twist
-- $(d_i)$: link offset
-- $(\theta_i^{off})$: constant joint angle offset
-- Actual joint angle:
-  $$
-  \theta_i = \theta_i^{off} + q_i
-  $$
+DH parameters used **consistently** across MuJoCo XML, ROS TF, analytical solvers, and learning controllers — guaranteeing sim-to-real alignment.
 
 <p align="center">
-  <img src="images/kinematics.png" width="20%">
+  <img src="images/kinematics_model.png" width="25%">
 </p>
 
----
+| Joint | Description | aᵢ (m) | αᵢ (°) | dᵢ (m) | θ_off (°) |
+|---|---|---|---|---|---|
+| J1 | Base yaw | 0.0000 | 0.0 | 0.2487 | 0.0 |
+| J2 | Shoulder pitch | 0.0218 | 90.0 | 0.0590 | 180.0 |
+| J3 | Arm pitch | 0.2998 | 0.0 | 0.0000 | 0.0 |
+| J4 | Elbow pitch | 0.0200 | 90.0 | 0.0000 | 0.0 |
+| J5 | Wrist pitch | 0.3251 | -90.0 | 0.0000 | 0.0 |
+| J6 | Wrist roll | 0.0428 | 90.0 | 0.0000 | 0.0 |
 
-### 🔢 Forward Kinematics
-
-The homogeneous transform from frame (i-1) to frame (i) is:
-
-$$
-T_i =
-\begin{bmatrix}
-\cos\theta_i & -\sin\theta_i\cos\alpha_i & \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \
-\sin\theta_i & \cos\theta_i\cos\alpha_i & -\cos\theta_i\sin\alpha_i & a_i\sin\theta_i \
-0 & \sin\alpha_i & \cos\alpha_i & d_i \
-0 & 0 & 0 & 1
-\end{bmatrix}
-$$
-
-The end-effector pose is computed as:
-
-$$
-T_{0}^{6} = \prod_{i=1}^{6} T_i
-$$
-
-This transformation is implemented in:
-
-```
-mujoco_sim/kinematics/forward_kinematics.py
-```
-
-and verified against the MuJoCo model.
-
----
-
-### 🎯 Workspace
-
-With the above parameters, the arm provides:
-
-- **Maximum reach:** ~1.0 m
-- **6-DOF full pose control**
-- **Continuous yaw at base**
-- **Decoupled wrist for smooth camera orientation**
-
-This kinematic design is optimized for **cinematographic shot composition**, providing long reach and smooth viewpoint control.
-
----
-
-### 🧩 Inverse Kinematics
-
-Inverse kinematics is solved using:
-
-- Analytical Jacobian-based iterative solver
-- Damped least-squares for singularity robustness
-
-Implemented in:
-
-```
-mujoco_sim/kinematics/inverse_kinematics.py
-```
-
----
-
-### 🧠 Usage
-
-Compute forward kinematics:
+**Max reach:** ~1.0 m &nbsp;|&nbsp; **Full 6-DOF pose control** &nbsp;|&nbsp; **Continuous base yaw**
 
 ```bash
-python mujoco_sim/kinematics/forward_kinematics.py --q 0 0 0 0 0 0
+# Forward kinematics
+python mujoco_sim/forward_kinematics.py --q 0 0 0 0 0 0
+
+# Inverse kinematics (damped least-squares)
+python mujoco_sim/inverse_kinematics_numerical.py --target_xyz 0.6 0.0 0.5
 ```
-
-Solve inverse kinematics:
-
-```bash
-python mujoco_sim/kinematics/inverse_kinematics.py --target_xyz 0.6 0.0 0.5
-```
-
----
-
-### ✅ Model Consistency
-
-The same DH parameters are used for:
-
-- MuJoCo XML model
-- ROS TF tree
-- Analytical solvers
-- Learning-based controllers
-
-This guarantees **consistent sim-to-real kinematic alignment**.
 
 ---
 
 ## 2️⃣ Low-Level Actuator Control
 
-Low-level torque, velocity, and position control is implemented using the **official Unitree GO-series actuator SDK**.
-Motors communicate over **RS-485 at 1 kHz**, enabling synchronized multi-joint closed-loop control with gravity compensation and impedance control.
-
-### 📘 Unitree SDK and Documentation
-
-- **Official Actuator Documentation:**
-  [https://support.unitree.com/home/en/Actuator](https://support.unitree.com/home/en/Actuator)
-
-- **Unitree Actuator SDK Repository:**
-  [https://github.com/unitreerobotics/unitree_actuator_sdk](https://github.com/unitreerobotics/unitree_actuator_sdk)
-
-Place the SDK at:
-
-```
-mpr_control/unitree_actuator_sdk/
-```
-
-### ⚙️ Setup
+6 motors communicate over **RS-485 at 1 kHz** with torque/velocity/position control via the Unitree SDK.
 
 ```bash
 cd mpr_control/unitree_actuator_sdk/python
-pip install -r requirements.txt
-```
 
-### ▶️ Example Motor Demos
-
-```bash
-python example_goM8010_6_motor.py     # Motor diagnostics
-python position_teleop.py             # Joint-space teleoperation
-python torque_teleop.py               # Torque control demo
-python velocity_teleop.py             # Velocity control demo
+python example_goM8010_6_motor.py    # Motor diagnostics
+python position_teleop.py             # Joint-space position control
+python torque_teleop.py               # Direct torque control
+python velocity_teleop.py             # Velocity control
 ```
 
 <p align="center">
   <img src="videos/motor.gif" width="35%">
 </p>
 
-### Repeatability Test
+**Repeatability test** — same trajectory executed 5× back-to-back:
 
 <p align="center">
   <img src="videos/repeatability-ezgif.com-video-to-gif-converter.gif" width="80%">
-</p>
-
-### Path Following Test
-
-<p align="center">
-  <img src="videos/circle_path_tracking.gif" width="80%">
 </p>
 
 ---
 
 ## 3️⃣ MuJoCo Simulation
 
-A physics-accurate **MuJoCo digital twin** is provided for:
-
-- Kinematic verification
-- Classical motion planning (RRT\*, potential fields)
-- Trajectory preview
-- Real–sim synchronization
-
-### ⚙️ Setup
+Physics-accurate digital twin used for kinematic verification, classical planning, trajectory preview, and real→sim mirroring.
 
 ```bash
 cd mujoco_sim
-pip install -r requirements.txt
 ```
 
-### ▶️ Run Simulation Demos
+### 🎬 Cinema Shot Modes
 
 ```bash
-python circle_path_tracking.py
-python line_path_tracking.py
+python cinema_line_tracking.py --mode crane    # Vertical rise/descend
+python cinema_line_tracking.py --mode dolly    # Push in / pull out
+python cinema_line_tracking.py --mode pan      # Lateral arc sweep
+```
+
+<p align="center">
+  <img src="videos/crane-ezgif.com-video-to-gif-converter.gif" width="32%">
+  <img src="videos/dolly-ezgif.com-video-to-gif-converter.gif" width="32%">
+  <img src="videos/pan-ezgif.com-video-to-gif-converter.gif" width="32%">
+</p>
+
+### 🔵 Circular Path Tracking
+
+```bash
+python circle_path_tracking.py --radius 0.15 --center 0.45 0.0 0.4
+```
+
+<p align="center">
+  <img src="videos/circle_follow-ezgif.com-video-to-gif-converter.gif" width="60%">
+</p>
+
+### 🟢 Point Tracking
+
+```bash
+python point_tracking.py
+```
+
+<p align="center">
+  <img src="videos/point_tracking-ezgif.com-video-to-gif-converter.gif" width="60%">
+</p>
+
+### 🎮 Interactive Teleoperation
+
+```bash
+python teleop_ik.py    # Cartesian IK control
+python teleop_fk.py    # Joint-space FK control
+```
+
+### 🧠 Classical Planners
+
+```bash
+# Artificial Potential Field
+python path_tracking.py
+
+# RRT* with obstacle avoidance
+cd classical_planner
+python rrt.py
 ```
 
 <p align="center">
@@ -342,185 +227,89 @@ python line_path_tracking.py
   <img src="videos/rrt.gif" width="42%">
 </p>
 
-```bash
-python cinema_line_tracking.py --mode crane
-```
-
-<p align="center">
-  <img src="videos/crane-ezgif.com-video-to-gif-converter.gif" width="60%">
-</p>
-
-```bash
-python cinema_line_tracking.py --mode dolly
-```
-
-<p align="center">
-  <img src="videos/dolly-ezgif.com-video-to-gif-converter.gif" width="60%">
-</p>
-
-```bash
-python cinema_line_tracking.py --mode pan
-```
-
-<p align="center">
-  <img src="videos/pan-ezgif.com-video-to-gif-converter.gif" width="60%">
-</p>
-
-### ▶️ Interactive Teleoperation
-
-```bash
-python teleop_ik.py     # Cartesian IK teleoperation
-python teleop_fk.py     # Joint-space teleoperation
-```
-
-<p align="center">
-  <img src="videos/teleop.gif" width="60%">
-</p>
-
 ---
 
-## 4️⃣ ROS Interface, Hardware Bringup, and Rosbag Collection
-
-The ROS stack provides a unified interface for **real‑robot control, calibration, teleoperation, MuJoCo synchronization, and dataset recording**.
-It bridges the Unitree actuator hardware, RealSense RGB‑D sensing, and the MuJoCo digital twin into a single synchronized pipeline.
+## 4️⃣ ROS Interface & Hardware
 
 <p align="center">
-  <img src="images/ros_nodes.png" width="80%">
+  <img src="images/ros_nodes.png" width="85%">
 </p>
 
-### 🧩 System Overview
+### 🧩 ROS Nodes
 
-**Core ROS Nodes**
-
-| Node                      | File                        | Role                                                                                                                |
-| ------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `iris_hw_node`            | `iris_hw_node.py`           | Low‑level hardware driver. Streams Unitree actuator states, executes joint commands, and publishes `/joint_states`. |
-| `keyboard_joint_teleop`   | `keyboard_joint_teleop.py`  | Keyboard teleoperation interface publishing `/arm/command`.                                                         |
-| `teach_repeat_node`       | `teach_and_repeat.py`       | Kinesthetic teaching and playback of demonstrations.                                                                |
-| `joint_state_calibrator`  | `calibrate_joint_states.py` | Converts raw motor states into calibrated kinematic joint states.                                                   |
-| `home_calibration_node`   | `calibrate_home_state.py`   | Interactive home pose calibration and offset saving.                                                                |
-| `mujoco_state_visualizer` | `mujoco_visualizer.py`      | Real‑to‑sim state synchronization in MuJoCo.                                                                        |
-
----
+| Node | Script | Role |
+|---|---|---|
+| `iris_hw_node` | `iris_hw_node.py` | RS-485 driver, 200 Hz, `/joint_states` pub, `/arm/command` sub |
+| `calibrate_joint_states` | `calibrate_joint_states_node.py` | Encoder offsets + differential wrist mapping → `/joint_states_calibrated` |
+| `calibrate_home_pose` | `calibrate_home_pose.py` | Interactive home pose setup, saves `calibration.yaml` |
+| `keyboard_joint_teleop` | `keyboard_joint_teleop.py` | Keyboard → `/arm/command` (joint-space) |
+| `keyboard_ik_teleop` | `keyboard_ik_teleop.py` | Keyboard → `/arm/command` (Cartesian IK) |
+| `teach_and_repeat` | `teach_and_repeat_node.py` | Gravity-compensated recording + cosine replay at 200 Hz |
+| `mujoco_visualizer` | `mujoco_visualizer_calibrated.py` | Real robot → MuJoCo live mirror |
 
 ### 🚀 Hardware Bringup
 
-Launch the IRIS hardware driver:
-
 ```bash
+# 1. Start ROS master
+roscore
+
+# 2. Launch hardware driver (200 Hz RS-485, joint states, safety watchdog)
 roslaunch unitree_arm_ros iris_bringup.launch
 ```
 
-This starts:
+**Topics:**
 
-- Unitree actuator streaming over RS‑485 at 200 Hz
-- `/joint_states` publisher
-- `/arm/command` subscriber
-- Joint‑space impedance control with velocity limiting and safety timeout
+| Topic | Direction | Description |
+|---|---|---|
+| `/joint_states` | Published | Raw motor-side positions & velocities |
+| `/joint_states_calibrated` | Published | Kinematic-frame joint states |
+| `/arm/command` | Subscribed | Target joint positions |
 
-**Published Topics**
-
-| Topic           | Type                     | Description                                   |
-| --------------- | ------------------------ | --------------------------------------------- |
-| `/joint_states` | `sensor_msgs/JointState` | Raw motor‑side joint positions and velocities |
-
-**Subscribed Topics**
-
-| Topic          | Type                     | Description                                   |
-| -------------- | ------------------------ | --------------------------------------------- |
-| `/arm/command` | `sensor_msgs/JointState` | Desired joint targets from teleop or policies |
-
----
-
-### 🎮 Keyboard Teleoperation
-
-Teleoperate in the Cartesian space:
+### 🏠 First-Time Calibration
 
 ```bash
-rosrun unitree_arm_ros teleop_ik.py
+# Step 1: Home pose — manually place arm upright, then press Enter
+rosrun unitree_arm_ros calibrate_home_pose.py
+# → Saves offsets to: config/calibration.yaml
+
+# Step 2: Run calibration relay (applies offsets + wrist mapping)
+rosrun unitree_arm_ros calibrate_joint_states_node.py
 ```
 
-Teleoperate in joint space:
+### 🎮 Teleoperation
 
 ```bash
-rosrun unitree_arm_ros teleop_joint.py
+# Joint-space keyboard teleop
+roslaunch unitree_arm_ros keyboard_teleop.launch
+
+# Cartesian IK teleop
+rosrun unitree_arm_ros keyboard_ik_teleop.py
 ```
 
 <p align="center">
-  <img src="videos/fk.gif" width="60%">
+  <img src="videos/fk.gif" width="48%">
+  <img src="videos/ik.gif" width="48%">
 </p>
+
+### ✋ Kinesthetic Teaching & Playback
+
+```bash
+rosrun unitree_arm_ros teach_and_repeat_node.py
+```
+
+- Records at **200 Hz** with gravity compensation
+- Replay uses **cosine interpolation** for smooth transitions
+- Exports CSV for debugging / benchmarking
 
 <p align="center">
-  <img src="videos/ik.gif" width="60%">
+  <img src="images/low_level.png" width="60%">
 </p>
 
-This launches:
-
-- Wait‑for‑state node
-- `keyboard_joint_teleop.py`
-
-**Teleop Flow**
-
-```
-Keyboard Input → /arm/command → iris_hw_node → Actuators → /joint_states
-```
-
----
-
-### 🏠 Home Pose Calibration
-
-Before first use, define the robot home configuration:
+### 🪞 Real → MuJoCo Live Mirror
 
 ```bash
-rosrun unitree_arm_ros calibrate_home_state.py
+rosrun unitree_arm_ros mujoco_visualizer_calibrated.py
 ```
-
-Procedure:
-
-1. Manually place robot in upright home pose
-2. Press ENTER in terminal
-3. Joint offsets are saved to `config/calibration.yaml`
-
-This file stores motor encoder offsets for repeatable kinematic alignment.
-
----
-
-### 🧭 Kinematic Joint Calibration
-
-Convert raw motor readings into kinematic joint coordinates:
-
-```bash
-rosrun unitree_arm_ros calibrate_joint_states.py
-```
-
-This node:
-
-- Subscribes to `/joint_states`
-- Applies saved encoder offsets
-- Computes differential wrist pitch/roll mapping
-- Publishes calibrated `/joint_states_calibrated`
-
-**Calibrated Topics**
-
-| Topic                      | Type                     | Description                                       |
-| -------------------------- | ------------------------ | ------------------------------------------------- |
-| `/joint_states_calibrated` | `sensor_msgs/JointState` | Kinematic joint states for controllers and MuJoCo |
-
----
-
-### 🪞 Real → MuJoCo Synchronization
-
-```bash
-rosrun unitree_arm_ros mujoco_visualizer.py
-```
-
-This node mirrors the real robot configuration into the MuJoCo digital twin:
-
-```
-/joint_states → Calibration → MuJoCo qpos → Live Viewer
-```
-
-This enables real‑time verification of kinematic consistency and safety before executing learned policies.
 
 <p align="center">
   <img src="images/sim2real.png" width="60%">
@@ -528,87 +317,26 @@ This enables real‑time verification of kinematic consistency and safety before
 
 ---
 
-### ✋ Kinesthetic Teaching and Playback
+## 5️⃣ Data Collection
 
-```bash
-rosrun unitree_arm_ros teach_and_repeat.py
-```
+### Expert Demonstrations
 
-Capabilities:
-
-- Gravity‑compensated hand‑guiding
-- High‑rate joint trajectory recording (200 Hz)
-- Smooth replay with cosine interpolation
-- CSV export for debugging or benchmarking
-
-**Data Flow**
-
-```
-/joint_states → teach_and_repeat → CSV log
-teach_and_repeat → /arm/command → iris_hw_node
-```
-
-<p align="center">
-  <img src="images/low_level.png " width="60%">
-</p>
-
----
-
-### 📷 RGB‑D and TF Streaming
-
-The RealSense camera publishes synchronized visual observations:
-
-| Topic                          | Type                     |
-| ------------------------------ | ------------------------ |
-| `/camera/color/image_raw`      | `sensor_msgs/Image`      |
-| `/camera/depth/image_rect_raw` | `sensor_msgs/Image`      |
-| `/camera/color/camera_info`    | `sensor_msgs/CameraInfo` |
-| `/tf`                          | `tf2_msgs/TFMessage`     |
-| `/tf_static`                   | `tf2_msgs/TFMessage`     |
-
-These streams provide timestamp‑aligned perception inputs for imitation learning.
-
----
-
-### 💾 Rosbag Data Recording
-
-Automated SSD‑backed data collection:
-
-```bash
-bash calibrated_data_collection -O NAME
-```
-
-Features:
-
-- Records directly to external SSD
-- Automatic filename tagging with goal and timestamp
-- Automatic bag chunking every 100 s
-- LZ4 compression
-
-**Recorded Topics**
-
-```
-/arm/command
-/joint_states
-/tf
-/tf_static
-/camera/color/image_raw
-/camera/color/camera_info
-/camera/depth/image_rect_raw
-/camera/depth/camera_info
-```
-
-Each bag is later converted into episode folders for training.
-
----
-
-### Human expert data collection demonstrations data collection
+Human physically guides the arm while the system records at 200 Hz.
 
 <p align="center">
   <img src="videos/data_collection_iris-ezgif.com-video-to-gif-converter.gif" width="60%">
 </p>
 
-### Semi-autonumous data collection deployment
+```bash
+# Starts calibration relay + rosbag recording to external SSD
+# LZ4 compressed, auto-chunked every 100s
+cd meng_ws/src/unitree_arm_ros/scripts
+bash calibrated_data_collection.sh -O <session_name>
+```
+
+**Recorded topics:** `/arm/command`, `/joint_states_calibrated`, `/tf`, `/tf_static`, `/camera/color/image_raw`, `/camera/depth/image_rect_raw`, camera info + extrinsics.
+
+### Semi-Autonomous Collection
 
 <p align="center">
   <img src="videos/semi_automous_data_collection.gif" width="60%">
@@ -616,145 +344,45 @@ Each bag is later converted into episode folders for training.
 
 ---
 
-### 📦 Dataset Output Structure
+## 6️⃣ Rosbag → Episode Processing
 
-```
-processed_data/<bag_prefix>_episode_0001/
- ├── rgb/                 # RGB frames
- ├── depth/              # Depth frames
- └── robot/joint_states.csv
-```
-
-These episodes are directly consumed by the imitation learning pipeline.
-
----
-
-## 5️⃣ Rosbag Data Processing and Episode Generation
-
-Raw ROS bag recordings are converted into structured, learning-ready episodes using an interactive dataset builder.
-This tool aligns RGB-D frames with robot joint states, performs timestamp interpolation, and exports synchronized multimodal trajectories for imitation learning.
-
----
-
-### 🧠 Processing Pipeline Overview
-
-```
-Rosbag (.bag)
- ├── /camera/color/image_raw         → RGB frames
- ├── /camera/depth/image_rect_raw   → Depth frames
- └── /joint_states                 → Robot joint states
-        ↓
-Temporal alignment (RGB ↔ Depth)
-        ↓
-Joint-state interpolation at camera timestamps
-        ↓
-Interactive episode slicing
-        ↓
-Structured episode folders
-```
-
----
-
-### ⚙️ Running the Dataset Builder
+Raw bags → structured training episodes via an **interactive GUI cutter**.
 
 ```bash
-cd bag_reader/scripts
-
-python process_rosbag.py \
-  --bag /media/jerry/SSD/rosbag_data/demo_name_YYYYMMDD_HHMMSS.bag \
+cd bag_reader
+python gui_process.py \
+  --bag /media/jerry/SSD/rosbag_data/<session>.bag \
   --out /media/jerry/SSD/processed_data
 ```
 
-This launches an interactive episode editor window.
+**GUI Controls:**
 
----
-
-### 🎛 Interactive Episode Cutter Controls
+| Key | Action |
+|---|---|
+| `←` / `→` | Move **START** frame |
+| `↑` / `↓` | Move **END** frame |
+| `p` | Preview selected segment |
+| `Enter` | Save episode |
+| `ESC` | Exit |
 
 <p align="center">
   <img src="images/gui.png" width="80%">
 </p>
 
-| Key       | Action                    |
-| --------- | ------------------------- |
-| ← / →     | Move START frame          |
-| ↑ / ↓     | Move END frame            |
-| **p**     | Playback selected segment |
-| **Enter** | Save current episode      |
-| **ESC**   | Exit                      |
+**What it does:**
+- Aligns RGB + depth timestamps (offset estimation + trim to 1:1)
+- Interpolates joint states at camera frame timestamps
+- Exports numbered episode folders
 
-During preview, the UI displays:
-
-- RGB frames
-- Normalized depth frames
-- Joint angles at start and end frames
-
-This allows precise trimming of clean demonstration segments.
-
----
-
-### 🔄 RGB–Depth Temporal Alignment
-
-Because RGB and depth cameras publish asynchronously, the script:
-
-1. Estimates the initial timestamp offset
-2. Trims streams to equal length
-3. Guarantees one-to-one RGB–Depth correspondence
-
----
-
-### 📐 Joint-State Interpolation
-
-Robot joint states are typically published at a higher rate than camera frames.
-To synchronize modalities, joint positions are interpolated at camera timestamps:
-
-[
-\mathbf{q}(t_c) = \mathrm{interp}(t_c, {t_j, \mathbf{q}_j})
-]
-
-This ensures each exported image frame has a precisely aligned robot configuration.
-
----
-
-### 📦 Output Episode Structure
+**Output structure:**
 
 ```
-processed_data/<bag_prefix>_episode_0001/
- ├── rgb/                  # RGB frames (frame_XXXX.png)
- ├── depth/                # Depth frames (frame_XXXX.png)
- ├── robot/
- │    └── joint_states.csv
- └── meta.json             # Episode timing metadata
+processed_data/<session>_episode_0001/
+├── rgb/           frame_XXXX.png
+├── depth/         frame_XXXX.png
+├── robot/         joint_states.csv   # timestamp, pos_joint_0..5
+└── meta.json      # start_index, end_index, num_frames, t_start, t_end
 ```
-
----
-
-### 📄 joint_states.csv Format
-
-| Column      | Description                 |
-| ----------- | --------------------------- |
-| timestamp   | Camera frame timestamp      |
-| pos_joint_i | Joint positions (rad)       |
-| vel_joint_i | Joint velocities (optional) |
-| eff_joint_i | Joint efforts (optional)    |
-
----
-
-### 🧾 meta.json
-
-Each episode also includes metadata:
-
-```json
-{
-  "start_index": 120,
-  "end_index": 360,
-  "num_frames": 241,
-  "t_start": 1736649201.23,
-  "t_end": 1736649205.87
-}
-```
-
-This allows exact temporal reconstruction for evaluation.
 
 <p align="center">
   <img src="images/data.png" width="50%">
@@ -762,82 +390,69 @@ This allows exact temporal reconstruction for evaluation.
 
 ---
 
-## 6️⃣ Imitation Learning
+## 7️⃣ Dataset Preparation
 
-Visuomotor imitation learning is implemented using an **Action‑Conditioned Transformer (ACT)** that predicts short‑horizon future joint trajectories conditioned on RGB observations, robot joint states, and a target goal.
+Convert episodes into training clips (sliding window format):
+
+```bash
+cd il_training
+
+# Step 1: Build clips (SEQ=8 input frames, FUTURE=15 target steps)
+python datasets/build_dataset.py \
+  --root /media/jerry/SSD/processed_data \
+  --prefix <session_name> \
+  --out ~/Desktop/final_RGB_joint_goal
+
+# Step 2: Resize all images to 224×224 in-place (run once)
+python datasets/resize_dataset.py \
+  --root_dir ~/Desktop/final_RGB_joint_goal \
+  --num_workers 8
+```
+
+Each training clip contains:
+
+| Data | Shape | Description |
+|---|---|---|
+| `rgb/input_XXXX.png` | 8 × (3, 224, 224) | RGB observation sequence |
+| `rgb/goal.png` | (3, 224, 224) | Target frame (last episode image) |
+| `robot/data.json` | — | Joint history (8×6) + future targets (15×6) |
+
+---
+
+## 8️⃣ Imitation Learning Training
 
 <p align="center">
   <img src="images/architecture.png" width="100%">
 </p>
 
----
+Three architectures × three input modalities = **9 ablation variants**.
 
-### 🧩 Model Architecture
+### Model Variants
 
-**Core components**
+| Key | Architecture | Inputs |
+|---|---|---|
+| `cvae_rgb` | CVAE + Transformer | RGB sequence |
+| `cvae_visual` | CVAE + Transformer | RGB + goal image |
+| **`cvae_full`** ⭐ | **CVAE + Transformer** | **RGB + goal + joint history** |
+| `det_rgb` | Deterministic Transformer | RGB sequence |
+| `det_visual` | Deterministic Transformer | RGB + goal image |
+| `det_full` | Deterministic Transformer | RGB + goal + joint history |
+| `vanilla_bc` | ResNet34 + MLP | RGB + goal + joint history |
 
-| Module        | File                          | Description                                                                                 |
-| ------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
-| ACT Model     | `models/transformer_model.py` | Action‑Conditioned Transformer with ResNet34 visual encoder and transformer encoder–decoder |
-| Loss Function | `losses/loss.py`              | Trajectory reconstruction + continuity + goal consistency loss                              |
-| Kinematics    | `kinematics.py`               | Forward kinematics used for Cartesian evaluation                                            |
-
-**Loss formulation**
-
-The training objective combines three terms:
-
-$$L = L_{mse} + λ_{cont} · L_{cont} + λ_{goal} · L_{goal}$$
-
-Trajectory reconstruction: $ L*mse = || Δq̂*(1:F) − Δq\_(1:F) ||²$
-Continuity regularization:$ L*{cont} = || Δq̂_1 ||²$
-Goal consistency:$ L*{goal} = || (q*t + Δq̂_F) − q*{goal} ||²$
-
-This encourages smooth initial motion, accurate trajectory imitation, and convergence to the goal configuration.
+> ✨ **Auto-resume:** All training scripts auto-resume from the last checkpoint — just re-run the same command.
 
 ---
 
-### ⚙️ Dataset Interface
+### CVAE Models (Primary — Best Performance)
 
-Training windows are loaded using:
-
-`datasets/iris_dataset.py → EpisodeWindowDataset`
-
-Each sample provides:
-
-| Tensor     | Shape               | Description                      |
-| ---------- | ------------------- | -------------------------------- |
-| rgb        | (B, S, 3, 128, 128) | RGB observation sequence         |
-| joints     | (B, S, 6)           | Joint states                     |
-| goal_xyz   | (B, 3)              | Cartesian goal position          |
-| fut_delta  | (B, F, 6)           | Ground‑truth future joint deltas |
-| goal_joint | (B, 6)              | Target joint configuration       |
-
----
-
-### 🏋️ Training & Ablation Studies
-
-Our framework supports three distinct model architectures for ablation studies: **CVAE (Generative)**, **Deterministic Transformer**, and **Vanilla CNN-BC**. Each can be trained on specific data modalities (RGB-only, Visual Goal, or Full Context).
-
-> **✨ Auto-Resume:** All scripts support auto-resume. If training stops (e.g., Ctrl+C), simply run the exact same command again to continue from the last saved checkpoint.
-
-#### 1. CVAE Models (State-of-the-Art)
-
-The CVAE models are our primary generative baselines, handling multi-modal distributions using a latent space.
-
-- **Script:** `train_cvae.py`
-- **Loss:** `--loss loss_kl` (MSE + KL Divergence + Smoothness)
-
-| Modality            | Inputs Used                             | Command Model Key     |
-| ------------------- | --------------------------------------- | --------------------- |
-| **RGB Only**        | Image Sequence Action                   | `--model cvae_rgb`    |
-| **Visual Servoing** | Image Seq + Goal Image Action           | `--model cvae_visual` |
-| **Full Context**    | Image Seq + Goal + Joint History Action | `--model cvae_full`   |
-
-**Example Command (Full Context):**
+**Loss:** MSE + β·KL + λ·Smoothness &nbsp;|&nbsp; β=0.01, SEQ=8, FUTURE=15, latent_dim=32
 
 ```bash
+cd il_training
+
+# Full context (recommended)
 python train_cvae.py \
-  --name cvae_full_experiment_v1 \
+  --name cvae_full_v1 \
   --model cvae_full \
   --loss loss_kl \
   --data_roots ~/Desktop/final_RGB_joint_goal \
@@ -845,296 +460,265 @@ python train_cvae.py \
   --batch_size 64 --num_workers 8 --epochs 100 \
   --latent_dim 32 --beta 0.01
 
+# Visual servoing (RGB + goal only)
+python train_cvae.py \
+  --name cvae_visual_v1 --model cvae_visual \
+  --loss loss_kl --data_roots ~/Desktop/final_RGB_goal \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 64 --epochs 100
+
+# RGB only (ablation)
+python train_cvae.py \
+  --name cvae_rgb_v1 --model cvae_rgb \
+  --loss loss_kl --data_roots ~/Desktop/final_RGB_only \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 64 --epochs 100
 ```
 
 <p align="center">
-  <img src="images/loss.png" width="70%">
+  <img src="images/loss.png" width="65%">
 </p>
 
 ---
 
-#### 2. Deterministic Transformer Models
+### Deterministic Transformer (Baseline)
 
-These models use the same Transformer backbone as the CVAE but without the latent variable. They serve as strong baselines for single-mode tasks.
-
-- **Script:** `train_determinstic.py`
-- **Loss:** `--loss mse_smooth` (MSE + Smoothness)
-
-| Modality            | Inputs Used                             | Command Model Key    |
-| ------------------- | --------------------------------------- | -------------------- |
-| **RGB Only**        | Image Sequence Action                   | `--model det_rgb`    |
-| **Visual Servoing** | Image Seq + Goal Image Action           | `--model det_visual` |
-| **Full Context**    | Image Seq + Goal + Joint History Action | `--model det_full`   |
-
-**Example Command (RGB Only Ablation):**
+**Loss:** MSE + Smoothness
 
 ```bash
 python train_determinstic.py \
-  --name det_rgb_experiment_v1 \
-  --model det_rgb \
+  --name det_full_v1 \
+  --model det_full \
   --loss mse_smooth \
-  --data_roots ~/Desktop/final_RGB_only \
+  --data_roots ~/Desktop/final_RGB_joint_goal \
   --checkpoint_dir ~/Desktop/checkpoints \
-  --batch_size 128 --num_workers 12 --epochs 100
-
+  --batch_size 128 --num_workers 8 --epochs 100
 ```
 
 ---
 
-#### 3. Vanilla CNN-BC (Behavior Cloning)
+### CNN Behavior Cloning (Baseline)
 
-A classic ResNet34 + MLP architecture. This serves as the "simple baseline" to prove the value of the Transformer/CVAE architecture.
-
-- **Script:** `train_cnn_bc.py`
-- **Data Requirement:** Requires Full Context (Images + Joints + Goal) by default.
-
-**Example Command:**
+**Loss:** MSE &nbsp;|&nbsp; Backbone: ResNet34 + MLP
 
 ```bash
 python train_cnn_bc.py \
-  --name vanilla_bc_baseline \
+  --name vanilla_bc_v1 \
   --data_roots ~/Desktop/final_RGB_joint_goal \
   --checkpoint_dir ~/Desktop/checkpoints \
   --batch_size 64 --num_workers 8 --epochs 100
 ```
 
-**Key Deployment Flags:**
+---
 
-- `--model_type`: Must match the model you trained (e.g., `cvae_rgb`, `det_visual`, `vanilla_bc`).
-- `--vis`: Enables the visualization window (shows live camera feed + goal image).
-- `--real_robot`: Connects to the real physical robot hardware (requires drivers).
-- `--sim`: Runs the policy in the MuJoCo simulation environment.
-
-#### 3. Continue Training of the Previous Model or Finetuning
-
-To train a policy what was previousluy interrupted or fine-tune baesd on an existing trained model:
+### Fine-tuning / Continue Training
 
 ```bash
 python continue_train.py \
-   --data_roots /media/jerry/SSD/final_data_mixed \
-   --name iris_cvae_mixed_v1 \
-   --model transformer_cvae \
-   --loss loss_kl \
-   --checkpoint_dir /media/jerry/SSD/new_mixed_checkpoints \
-   --batch_size 32 \
-   --epochs 200 \
-   --num_workers 8
+  --name iris_cvae_finetune_v1 \
+  --model transformer_cvae \
+  --loss loss_kl \
+  --data_roots /media/jerry/SSD/new_data \
+  --checkpoint_dir ~/Desktop/checkpoints \
+  --batch_size 32 --epochs 200
 ```
 
-### 📂 Where is Everything Saved?
+### Output Files
 
-We now organize outputs directly on the Desktop for easier access and monitoring.
-
-| File Type       | Location                       | Description                                                        |
-| --------------- | ------------------------------ | ------------------------------------------------------------------ |
-| **Checkpoints** | `~/Desktop/checkpoints/`       | Saved model weights (`best_*.pth`, `latest_*.pth`, `final_*.pth`). |
-| **Loss Plots**  | `~/Desktop/checkpoints/plots/` | Visual graphs of Train vs Val loss and raw CSV history.            |
-| **Dataset**     | `~/Desktop/final_RGB_...`      | The resized training datasets (RGB-only, Joint+Goal, etc.).        |
+```
+~/Desktop/checkpoints/
+├── best_<name>.pth      ← best validation checkpoint (use this for deployment)
+├── latest_<name>.pth    ← most recent checkpoint (auto-resume target)
+└── plots/
+    ├── loss_<name>.png  ← train/val loss curve
+    └── loss_<name>.csv  ← raw history
+```
 
 ---
 
-### 🧪 Offline Testing & Evaluation
+## 9️⃣ Offline Evaluation
 
-Before running on the robot, evaluate the model's performance on held-out test data using our metrics script. This calculates MSE (Accuracy), KL Divergence, and prediction error.
+Evaluate on held-out test data before touching the robot:
 
 ```bash
-python metrics_test.py \
+cd il_training
+
+# Compute MSE + KL metrics on test split
+python metrics_compute/metrics_test.py \
   --test_data ~/Desktop/final_RGB_joint_goal/test \
-  --checkpoint ~/Desktop/checkpoints/best_cvae_full_desktop_v1.pth \
+  --checkpoint ~/Desktop/checkpoints/best_cvae_full_v1.pth \
   --model_type cvae_full
-```
 
-**To visualize the dataset distributions (for paper's figure):**
-
-```bash
-python visualize_paper_final_tight.py \
-  --data_dir ~/Desktop/final_RGB_joint_goal \
-  --split train
-```
-
----
-
-## 7️⃣ Sim-to-real Deployment
-
-Once you have a trained policy (e.g., `best_cvae_full_desktop_v1.pth`), deploy it to the real IRIS robot using **`policy.py`**.
-
-#### 1. Hardware Check (Inverse Kinematics)
-
-First, verify the robot communicates correctly by running the IK teleop bridge:
-
-```bash
-rosrun unitree_arm_ros keyboard_ik_teleop.py
-```
-
-#### 2. Execute Learned Policy (`policy.py`)
-
-Run the inference script. You **must** specify the correct `model_type` used during training.
-
-**Option A: Running the Full Context CVAE (Best Performance)**
-
-```bash
-python policy.py \
-  --model_type cvae_full \
-  --checkpoint ~/Desktop/checkpoints/best_cvae_full_desktop_v1.pth \
-  --stats_path ~/Desktop/final_RGB_joint_goal/dataset_stats.pkl \
-  --device cuda \
-  --real_robot  # Remove this flag to test in Simulation
-```
-
-**Option B: Running the RGB-Only Baseline**
-
-```bash
-python policy.py \
-  --model_type det_rgb \
-  --checkpoint ~/Desktop/checkpoints/best_det_rgb_desktop_v1.pth \
-  --stats_path ~/Desktop/final_RGB_only/dataset_stats.pkl \
-  --device cuda \
-  --real_robot
-```
-
-**Key Flags:**
-
-- `--model_type`: Must match the training key (e.g., `cvae_full`, `det_rgb`, `vanilla_bc`).
-- `--stats_path`: Path to the statistics file (usually inside your dataset folder) to un-normalize the robot actions.
-- `--vis`: Opens a window showing the live camera feed and the goal image overlay.
-
-To test the robustness of the policy, we tried few zero-shot initial condition, where the initial pose of IRIS is placed outside the dataset distribution. The policy still demonstrated robust recovery, especially at the end of the trajectory where it misses the target image, and tried recover to the correct image. 
-
-<p align="center">
-  <img src="videos/deployment.gif" width="100%">
-</p>
-
----
-
-### Training Pipeline Summary
-
-1. **Input:** Resized Clips (224x224) from `~/Desktop/final_RGB_*`.
-2. **Loader:** `IRISClipDataset` samples sequence chunks (Seq=8) and future goals (Future=15).
-3. **Model:**
-
-- **CVAE:** `CVAE_RGB_Joints_Goal_Absolute` (Generative)
-- **Det:** `Transformer_Absolute` (Deterministic)
-- **BC:** `VanillaBC_Visual_Absolute` (CNN Baseline)
-
-4. **Loop:** Train → Validate → **Auto-Save History** → Checkpoint.
-5. **Output:** `best_*.pth` is saved to `~/Desktop/checkpoints` for deployment.
-
-Here is a friendly, interactive **README** section for your project! 🚀
-
----
-
-## 8️⃣ Metrics Benchmarking
-
-Welcome to the **Metrics Suite**! This is where we prove that our robot isn't just moving—it's _making art_ (or at least trying to). We use a combination of **Offline Analysis** for deep dives and **Live Logging** for real-time feedback.
-
-### 🛠️ Prerequisites
-
-Make sure you have the magic libraries installed before starting:
-
-```bash
-pip install mujoco pandas scipy ultralytics colorama tqdm
-
-```
-
----
-
-### 🟢 A. Offline Benchmarking (The Deep Dive)
-
-Have a folder full of recorded episodes? Use `offline_metric_logger_mujoco.py` to crunch the numbers. It calculates **Cartesian Jerk** (using MuJoCo FK), **Visual Alignment**, and **Framing Error** for every single episode.
-
-**🏃 How to Run:**
-
-```bash
-python3 offline_metric_logger_mujoco.py \
-  --root /path/to/your/episodes_folder \
+# Full offline benchmark: Visual Alignment, Jerk, Framing Error, SRR
+python metrics_compute/offline_metric_logger.py \
+  --root /path/to/recorded_policy_episodes \
   --goal /path/to/goal_image.png \
-  --xml iris.xml \
+  --xml ~/Desktop/MEng_project/mujoco_sim/assets/iris.xml \
   --num 10
-
 ```
 
-**📝 Arguments:**
-
-- `--root`: Folder containing your recorded episodes (e.g., `processed_policy_full`).
-- `--goal`: The "Golden Standard" image the robot should match.
-- `--xml`: Path to your robot's MuJoCo XML (needed for kinematics!).
-- `--num`: Limit how many episodes to process (Default: 10).
-
-**✨ Output:**
-You'll see a beautiful color-coded table in your terminal:
-
-```text
-[Ep 001] Vis: 0.962 | Status: SUCCESS | Jerk: 0.8200 | Len: 0.65m
-[Ep 002] Vis: 0.720 | Status: FAIL    | Jerk: 4.5000 | Len: 0.10m
+**Offline metrics output:**
 
 ```
-
-It also saves a detailed `.csv` file in the root folder.
+[Ep 001] Vis: 0.962 | Status: SUCCESS | Jerk: 0.82 | Len: 0.65m
+[Ep 002] Vis: 0.720 | Status: FAIL    | Jerk: 4.50 | Len: 0.10m
+```
 
 ---
 
-### 🔴 B. Live Deployment & Logging
-
-Want to see how the policy performs in the real world? The deployment script runs the neural network **AND** logs metrics in real-time!
+## 🔟 Deployment (Sim-to-Real)
 
 <p align="center">
   <img src="images/metrics.png" width="100%">
 </p>
 
-**🏃 How to Run:**
+### Run CVAE Policy (Best Performance)
 
 ```bash
-python3 deploy_cnn_policy.py \
-  --checkpoint /path/to/best_model.pth \
-  --goal /path/to/goal_image.png
+cd il_training
 
+# CVAE full — real robot
+python policy_cvae.py \
+  --model_type cvae_full \
+  --checkpoint ~/Desktop/checkpoints/best_cvae_full_v1.pth \
+  --goal_dir ~/Desktop/goal_images \
+  --device cuda
+
+# CVAE full — simulation only
+python policy_cvae.py \
+  --model_type cvae_full \
+  --checkpoint ~/Desktop/checkpoints/best_cvae_full_v1.pth \
+  --goal_dir ~/Desktop/goal_images \
+  --device cuda --sim
 ```
 
-**👀 What you see:**
+### Run CNN-BC Policy (Baseline)
 
-- **Real-time Similarity:** "Sim Score: 0.92 [ALIGNED]" printed to the console.
-- **Safety Checks:** Logs the maximum jump (delta) in joint angles.
-- **CSV Log:** Automatically creates a timestamped file `deploy_cnn_...csv` recording every step.
+```bash
+python policy_cnn.py \
+  --checkpoint ~/Desktop/checkpoints/best_vanilla_bc_v1.pth \
+  --goal_dir ~/Desktop/goal_images \
+  --device cuda
+```
+
+### Runtime Flags
+
+| Flag | Description |
+|---|---|
+| `--model_type` | Must match training key (`cvae_full`, `det_rgb`, `vanilla_bc`, …) |
+| `--goal_dir` | Folder containing goal image(s) (`goal.png`, `goal2.png`, …) |
+| `--device cuda` | Use GPU inference |
+| `--sim` | Run in MuJoCo simulation instead of real robot |
+
+**Safety parameters (in `policy_cvae.py`):**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `CONTROL_HZ` | 10 Hz | Inference rate |
+| `MAX_STEP_RADIANS` | 0.2 rad | Max per-step joint change |
+| `EMA_ALPHA` | 0.3 | Smoothing (0 = heavy, 1 = none) |
+| `LOOKAHEAD_STEPS` | 1 | Which step in the 15-step prediction to execute |
+
+<p align="center">
+  <img src="videos/iris_deployment-ezgif.com-video-to-gif-converter.gif" width="90%">
+</p>
 
 ---
 
-### 📈 C. The Summary Generator
+## 📊 Results & Metrics
 
-Too many CSV files? Don't do the math yourself! Use `summarize_metrics.py` to aggregate everything into one neat report.
+### Aggregate Results
 
-**🏃 How to Run:**
+| Method | N | Success Rate | Vis. Alignment | Avg Jerk (m/s³) | SRR |
+|---|---|:---:|:---:|:---:|:---:|
+| **Expert (Human)** | 10 | **90.0%** | **0.874** | 3.64 | 67.1% |
+| **CVAE Full** ⭐ | 13 | **46.2%** | **0.847** | **0.61** | 32.7% |
+| Incremental | 6 | 0.0% | 0.636 | 0.83 | 35.2% |
+| RGB Only | 3 | 0.0% | 0.584 | 1.65 | 7.2% |
+| Visual (no joints) | 4 | 0.0% | 0.536 | 1.59 | 7.3% |
+| RRT* | 4 | 0.0% | 0.636 | 0.22 | 10.5% |
+
+> **Key insight:** CVAE Full achieves 97% of expert visual alignment (0.847 vs 0.874) and is **6× smoother** than the human expert (jerk: 0.61 vs 3.64 m/s³).
+
+<p align="center">
+  <img src="images/metrics.png" width="90%">
+</p>
+
+### Metric Definitions
+
+| Metric | Description |
+|---|---|
+| **Visual Alignment** | ResNet18 cosine similarity between current frame and goal image (0→1) |
+| **Success Rate** | % of episodes where visual alignment > 0.85 at trajectory end |
+| **Cartesian Jerk** | Mean 3rd derivative of end-effector position (m/s³) — lower is smoother |
+| **Framing Error** | Pixel-level offset from target composition |
+| **SRR** | Shot Repeatability Rate — % of trajectory within acceptable zone |
+
+### Generate Summary Table
 
 ```bash
-# Run inside the folder containing your metric CSVs
-python3 summarize_metrics.py
+cd il_training/metrics_compute
 
+# Aggregates all *metrics.csv files in current folder
+python summarize_metrics.py --root . --output summary_results.csv
 ```
 
-**✨ Magic Features:**
+---
 
-- **Auto-Discovery:** Finds all `*metrics.csv` files in the folder.
-- **Auto-Merge:** Automatically groups `policy_full` and `policy_full2` into one dataset.
-- **The Big Table:** Generates the final comparison table you need for the paper! 📄
+## 🔬 Robustness Testing
 
-```text
-Method       Success Rate (%)   Avg Vis. Align   Avg Jerk
-expert       90.0               0.874            3.64
-policy_full  46.2               0.847            0.61
+Zero-shot initial condition tests — arm placed outside training distribution. Policy demonstrates visual recovery, especially toward end of trajectory.
+
+<p align="center">
+  <img src="images/table.png" width="90%">
+</p>
+
+---
+
+## 📐 System Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────────┐
+│                        IRIS Full Stack                          │
+├──────────────┬──────────────┬──────────────┬────────────────────┤
+│  Hardware    │   ROS Stack  │  Data        │  Learning          │
+│              │              │              │                    │
+│ 6× Unitree   │ iris_hw_node │ Kinesthetic  │ CVAE Transformer   │
+│ GO-M8010-6   │  (200 Hz)    │  Teaching    │ ResNet18 backbone  │
+│ RS-485 bus   │              │     ↓        │ Spatial Softmax    │
+│              │ calibrate_   │ Rosbag       │ Latent dim = 32    │
+│ RealSense    │ joint_states │     ↓        │ SEQ=8, FUTURE=15   │
+│ D435 RGB-D   │              │ gui_process  │ d_model=256        │
+│              │ teach_and_   │     ↓        │ 4 enc + 4 dec      │
+│ Jetson Nano  │ repeat_node  │ build_dataset│ 8 attention heads  │
+│              │              │     ↓        │                    │
+│              │ policy_cvae  │ IRISClipData │ Loss: MSE+KL+Smooth│
+└──────────────┴──────────────┴──────────────┴────────────────────┘
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)** license.
+
+- ✅ Free to use, share, and adapt for **non-commercial** purposes with attribution
+- ❌ Commercial use requires explicit permission
+- 📩 **Business / manufacturing inquiries:** [qc1007@nyu.edu](mailto:qc1007@nyu.edu)
+
+Full license text: [LICENSE](LICENSE) · [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
 
 ---
 
 ## 📄 Citation
 
-```
-@inproceedings{
-cheng2026iris,
-title={{IRIS}: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control},
-author={Qilong Cheng and Matthew Mackay and Ali Bereyhi},
-booktitle={23rd Conference on Robots and Vision},
-year={2026},
-url={https://openreview.net/forum?id=j7NuiOgKn3}
+```bibtex
+@inproceedings{cheng2026iris,
+  title     = {{IRIS}: Learning-Driven Task-Specific Cinema Robot Arm for Visuomotor Motion Control},
+  author    = {Qilong Cheng and Matthew Mackay and Ali Bereyhi},
+  booktitle = {23rd Conference on Robots and Vision},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=j7NuiOgKn3}
 }
 ```
 
@@ -1142,6 +726,5 @@ url={https://openreview.net/forum?id=j7NuiOgKn3}
 
 ## 📧 Contact
 
-**Qilong (Jerry) Cheng**
-NYU Robotics
+**Qilong (Jerry) Cheng** — NYU Robotics  
 [qc1007@nyu.edu](mailto:qc1007@nyu.edu)
